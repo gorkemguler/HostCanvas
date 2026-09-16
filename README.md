@@ -1,64 +1,73 @@
+<p align="center">
+  <img src="docs/assets/github-banner.png" alt="HostCanvas — Local-first domain security visibility" width="100%">
+</p>
+
+<p align="center">
+  <strong>English</strong> · <a href="README.tr.md">Türkçe</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/gorkemguler/HostCanvas/actions/workflows/ci.yml"><img src="https://github.com/gorkemguler/HostCanvas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/version-0.3.0-1f883d" alt="Version 0.3.0">
+  <img src="https://img.shields.io/badge/Node.js-%E2%89%A524.9-339933?logo=nodedotjs&logoColor=white" alt="Node.js 24.9 or newer">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/gorkemguler/HostCanvas" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/architecture-local--first-0f766e" alt="Local-first architecture">
+</p>
+
 # HostCanvas
 
 > Local-first domain inventory, certificate visibility, security checks, and incident management for teams that operate their own infrastructure.
 
-HostCanvas, ekiplerin yönettikleri domain ve hostname envanterini; sertifika süreleri, TLS/DNS/HTTP güvenlik kontrolleri ve tekrar eden incident’larla birlikte tek bir yerel çalışma alanında izlemesini sağlayan local-first bir güvenlik uygulamasıdır. Tam kapsamlı bir EASM platformu olmayı iddia etmez; domain envanteri ve düzenli güvenlik görünürlüğüne odaklanır.
+HostCanvas brings managed domains and hostnames, certificate lifetimes, TLS/DNS/HTTP security checks, and recurring incidents into one local workspace. It is not positioned as a full EASM platform; it focuses on domain inventory and continuous operational security visibility.
 
-Uygulama telemetry göndermez; envanteri, yönetici hesabını, oturum özetlerini ve tarama geçmişini yerel SQLite veritabanında tutar. Sunucular LAN bağlantısını kabul edecek şekilde dinler ancak uygulama politikası ilk kurulumda LAN erişimini kapalı tutar.
+The application sends no telemetry. Inventory, administrator accounts, session summaries, and scan history remain in a local SQLite database. The services bind so that LAN use is possible, while application policy keeps LAN access disabled until an administrator explicitly enables it.
 
-## Ekran görüntüleri
+## Screenshots
 
-| Operasyon görünümü | Asset envanteri |
+| Operations overview | Asset inventory |
 | --- | --- |
-| ![HostCanvas dashboard](docs/screenshots/dashboard.jpg) | ![HostCanvas asset inventory](docs/screenshots/assets.jpg) |
+| ![HostCanvas English dashboard](docs/screenshots/en/dashboard.jpg) | ![HostCanvas English asset inventory](docs/screenshots/en/assets.jpg) |
 
-| Subdomain keşfi | Alarm kataloğu |
+| Subdomain discovery | First-time setup |
 | --- | --- |
-| ![HostCanvas crt.name subdomain discovery](docs/screenshots/subdomain-discovery.jpg) | ![HostCanvas check catalog](docs/screenshots/checks.jpg) |
+| ![HostCanvas English crt.name subdomain discovery](docs/screenshots/en/subdomain-discovery.jpg) | ![HostCanvas English first-time setup](docs/screenshots/en/setup.jpg) |
 
-<details>
-<summary>İlk kurulum sihirbazı</summary>
+## What is included?
 
-![HostCanvas first-run setup](docs/screenshots/setup.jpg)
+- Domain and port inventory with owner, environment, scan interval, and renewal threshold
+- Fast native TLS scanning:
+  - certificate validity period and SHA-256 fingerprint
+  - hostname/SAN matching
+  - chain validation against the system trust store
+  - RSA/DSA key length and weak-signature checks
+  - TLS 1.0–1.3 support probes
+  - negotiated protocol, cipher, ALPN, and ephemeral-key details
+  - HSTS, CSP, anti-framing, Referrer-Policy, and nosniff checks
+  - Server-header disclosure, obsolete X-XSS-Protection, and cookie SameSite checks
+- Optional IDS-friendly `testssl.sh` deep-scan profile
+- `pass / fail / unknown` rule model
+- Incidents that open, can be assigned or manually resolved, auto-resolve, and reopen
+- Scheduled scans, persistent job history, and interrupted-job recovery after restart
+- Private-IP disclosure, DNSSEC, DMARC, and SPF checks when a public DNS resolver is configured
+- Optional `crt.name` subdomain discovery and source relationships when adding an apex domain
+- CSV inventory export
+- First-run wizard for language, organization, access policy, administrator, scan defaults, and the first asset
+- scrypt password hashing, hashed session tokens, and rate-limited sign-in
+- Optional LAN access protected by mandatory authentication and an origin allowlist
+- Admin, operator, and viewer roles with last-administrator protection
+- Persistent audit events for sign-in, settings, users, assets, scans, incidents, and notifications
+- AES-256-GCM encrypted generic and Slack webhooks with severity thresholds and delivery history
+- Automatic scan/artifact retention, integrity-checked SQLite backups, and a guarded restore utility
+- Single-origin HTTPS LAN deployment through Docker Compose and Caddy
+- Responsive Turkish and English operations console
 
-</details>
+## Quick start
 
-## Neler hazır?
-
-- Domain + port envanteri, sahip ekip, ortam, tarama aralığı ve yenileme eşiği
-- Hızlı native TLS taraması:
-  - sertifika başlangıç/bitiş zamanı ve SHA-256 fingerprint
-  - hostname/SAN eşleşmesi
-  - sistem trust store ile zincir doğrulaması
-  - RSA/DSA anahtar uzunluğu ve zayıf imza kontrolü
-  - TLS 1.0–1.3 destek probe’ları
-  - negotiated protokol, cipher, ALPN ve ephemeral key bilgisi
-  - HSTS, CSP, anti-framing, Referrer-Policy ve nosniff kontrolleri
-  - Server başlığı ifşası, eski X-XSS-Protection ve cookie SameSite kontrolleri
-- Opsiyonel, IDS-friendly `testssl.sh` derin tarama profili
-- `pass / fail / unknown` kural modeli
-- Açılma, sahiplenme, manuel çözme, otomatik çözme ve yeniden açılma davranışına sahip incident’lar
-- Zamanlanmış taramalar, kalıcı iş geçmişi ve restart sonrası yarım kalan işi geri alma
-- Public DNS resolver yapılandırıldığında private IP ifşası, DNSSEC, DMARC ve SPF kontrolleri
-- Yeni bir kök domain eklenirken isteğe bağlı `crt.name` subdomain keşfi ve kaynak ilişkisi
-- CSV envanter çıktısı
-- İlk çalıştırma sihirbazı: dil, kurum, erişim politikası, yönetici hesabı, tarama varsayılanları ve ilk varlık
-- scrypt parola özeti, hashlenmiş oturum belirteçleri ve hız sınırlamalı giriş
-- Kimlik doğrulaması zorunlu, origin allowlist ile sınırlandırılmış isteğe bağlı LAN erişimi
-- Admin / operator / viewer rolleri, kullanıcı yönetimi ve son yöneticiyi koruyan RBAC
-- Giriş, ayar, kullanıcı, asset, tarama, incident ve bildirim işlemleri için kalıcı audit kaydı
-- AES-256-GCM ile şifreli generic/Slack webhook adresleri, önem eşiği ve teslimat geçmişi
-- Otomatik scan/artifact retention, bütünlük kontrollü SQLite yedekleri ve güvenli geri yükleme aracı
-- Docker Compose ile Caddy üzerinden tek-origin HTTPS LAN dağıtımı
-- Türkçe/İngilizce, responsive operasyon paneli
-
-## Hızlı başlangıç
-
-Gereksinimler:
+Requirements:
 
 - Node.js `24.9+`
 - npm
-- Derin tarama için opsiyonel `testssl.sh` 3.2.x
+- Optional: `testssl.sh` 3.2.x for deep scans
 
 ```bash
 npm install
@@ -66,201 +75,199 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Panel: [http://localhost:3000](http://localhost:3000)
+Console: [http://localhost:3000](http://localhost:3000)
 
-Yerel API: [http://localhost:8787/api/health](http://localhost:8787/api/health)
+Local API: [http://localhost:8787/api/health](http://localhost:8787/api/health)
 
-`npm run dev`, web panelini ve tarama motorunu birlikte başlatır. İlk açılışta kurulum sihirbazı gösterilir. Dil ve erişim ayarlarını seçer, yönetici hesabını oluşturur ve isterseniz ilk varlığı eklersiniz. Hedef eklerken tarama yetkiniz olduğunu onaylamanız gerekir.
+`npm run dev` starts both the web console and the scanning service. The first visit opens the setup wizard, where you select a language and access policy, create the administrator account, and optionally add the first asset. Adding a target requires an explicit confirmation that you are authorized to scan it.
 
 ### Docker Compose
 
-Docker yüklüyse testssl.sh 3.2.4 ve Caddy HTTPS reverse proxy ile sertleştirilmiş LAN kurulumu:
+For a hardened LAN deployment with testssl.sh 3.2.4 and a Caddy HTTPS reverse proxy:
 
 ```bash
 docker compose up --build
 ```
 
-Panel LAN üzerinde `https://SUNUCU-IP:3443` adresindedir. İlk kurulumda **LAN erişimi** seçeneğini açın; uzak kurulum için istenen tek kullanımlık kod `docker compose logs app` çıktısında görünür. Caddy ilk çalıştırmada yerel bir CA üretir. Tarayıcı uyarısını kaldırmak için CA sertifikasını dışarı alın ve yalnızca yönettiğiniz istemcilere güvenilir kök olarak kurun:
+The console is available on the LAN at `https://SERVER-IP:3443`. Enable **LAN access** during setup. A remote first-time setup also requires the one-time code shown by `docker compose logs app`. Caddy creates a local CA on first launch. To remove the browser warning, export the CA certificate and install it as a trusted root only on managed clients:
 
 ```bash
 docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt ./host-canvas-local-ca.crt
 ```
 
-Uygulama container’ı non-root çalışır; iki serviste de capabilities düşürülür, root filesystem read-only’dir ve kalıcı veriler named volume’larda tutulur. Ham `3000` ve `8787` portları yalnızca host loopback’e bağlıdır; LAN’a yalnızca HTTPS `3443` açılır.
+The application container runs as a non-root user. Capabilities are dropped, root filesystems are read-only, and persistent state is stored in named volumes. Raw ports `3000` and `8787` bind only to host loopback; the LAN sees only HTTPS port `3443`.
 
-## Güvenlik modeli
+## Security model
 
 ```text
-Kullanıcı girdisi
-      │
-      ▼
-Hostname + port doğrulama
-      │
-      ▼
-DNS resolve → tüm IP’leri sınıflandır → izinli IP’yi sabitle
-      │
-      ├── Native TLS / HTTP probe
-      └── testssl.sh adapter (shell yok, sabit argv, timeout, çıktı limiti)
-              │
-              ▼
-       Normalize gözlemler
-              │
-              ▼
-       Saf alarm kuralları
-              │
-              ▼
-       Incident uzlaştırma
+User input
+    │
+    ▼
+Validate hostname + port
+    │
+    ▼
+Resolve DNS → classify every IP → pin an allowed IP
+    │
+    ├── Native TLS / HTTP probe
+    └── testssl.sh adapter (no shell, fixed argv, timeout, output limit)
+            │
+            ▼
+     Normalize observations
+            │
+            ▼
+       Pure alert rules
+            │
+            ▼
+      Reconcile incidents
 ```
 
-Varsayılan olarak private, loopback, link-local, CGNAT, reserved ve documentation IP aralıkları taranamaz. Bu davranış DNS rebinding ve localhost/metadata SSRF riskini azaltır. İç ağ taraması için iki ayrı onay gerekir:
+Private, loopback, link-local, CGNAT, reserved, and documentation IP ranges are blocked by default. This reduces DNS-rebinding and localhost/metadata SSRF risk. Internal-network scanning requires two independent opt-ins:
 
-1. Sunucuda `TLS_SENTINEL_ALLOW_PRIVATE_TARGETS=true`
-2. İlgili varlıkta “İç ağ hedefi” seçeneği
+1. Set `TLS_SENTINEL_ALLOW_PRIVATE_TARGETS=true` on the server.
+2. Enable “Internal network target” for the specific asset.
 
-Uygulama yalnızca hostname kabul eder; URL, path, wildcard, serbest CLI argümanı ve doğrudan IP girişi reddedilir. DNS çalışma anında çözülür ve bağlantı doğrulanan IP’ye yapılırken orijinal hostname SNI olarak korunur.
+HostCanvas accepts hostnames only. URLs, paths, wildcards, arbitrary CLI arguments, and direct IP input are rejected. DNS is resolved when a scan runs; the connection is pinned to the validated IP while the original hostname is preserved for SNI.
 
-> Bu araç yalnızca sahibi olduğunuz veya açık tarama izni aldığınız sistemlerde kullanılmalıdır.
+> Scan only systems you own or have explicit permission to assess.
 
-## Tarama profilleri
+## Scan profiles
 
-### Native / hızlı
+### Native / quick
 
-Sık çalıştırılmak üzere tasarlanmıştır. Varsayılan aralık 12 saattir. Node.js TLS ve X.509 API’lerini kullanır; üçüncü taraf servise veri göndermez.
+Designed for frequent execution, with a default interval of 12 hours. It uses Node.js TLS and X.509 APIs and does not send target data to a third-party scanning service.
 
-### testssl.sh / derin
+### testssl.sh / deep
 
-Cipher/protokol enumerasyonu ve bilinen TLS zafiyet kontrolleri için `testssl.sh` adapter’ını kullanır. Adapter:
+The `testssl.sh` adapter provides cipher/protocol enumeration and known TLS-vulnerability checks. The adapter:
 
-- subprocess’i `shell: false` ile başlatır,
-- kullanıcıdan flag veya output path kabul etmez,
-- önceden doğrulanmış IP’yi `--ip` ile sabitler ve `--nodns none` kullanır,
-- `--ids-friendly` profilini etkinleştirir,
-- `--phone-out` kullanmaz,
-- süre ve stdout/stderr boyut limiti uygular,
-- incident’ı exit code’dan değil JSON bulgularından üretir.
+- launches the process with `shell: false`;
+- accepts no user-controlled flags or output paths;
+- pins the prevalidated IP with `--ip` and uses `--nodns none`;
+- enables the `--ids-friendly` profile;
+- never enables `--phone-out`;
+- limits execution time and stdout/stderr size; and
+- creates incidents from normalized JSON findings, not from the process exit code.
 
-`testssl.sh` sonucu SSL Labs derecesi değildir. HostCanvas kendi basit operasyonel skorunu gösterir. Testssl.sh [GPLv2](https://github.com/testssl/testssl.sh/blob/3.2/LICENSE) lisanslıdır; Docker imajı sabitlenmiş kaynak sürümünü `/opt/testssl` altında lisansıyla birlikte taşır.
+A testssl.sh result is not an SSL Labs grade. HostCanvas displays its own lightweight operational score. testssl.sh is licensed under [GPLv2](https://github.com/testssl/testssl.sh/blob/3.2/LICENSE); the Docker image carries the pinned source and its license under `/opt/testssl`.
 
-## Subdomain keşfi
+## Subdomain discovery
 
-Asset ekleme ekranındaki `crt.name ile subdomain keşfi` seçeneği kök domaini `https://crt.name/v1/search` API’sine gönderir. HostCanvas dönen kayıtları IDNA/hostname kurallarıyla doğrular, wildcard ve farklı domain sonuçlarını reddeder, tekrarları ayıklar ve varsayılan olarak en fazla 200 subdomaini yeni asset olarak kaydeder. Keşfedilen asset’lar kök asset ile ilişkilendirilir, `crt.name` kaynağıyla etiketlenir ve anlık bir tarama fırtınası oluşturmamak için ilk kontrolleri kademeli planlanır.
+The `Subdomain discovery with crt.name` option sends the apex domain to the `https://crt.name/v1/search` API. HostCanvas validates the response with its IDNA/hostname rules, rejects wildcards and out-of-scope domains, removes duplicates, and adds up to 200 subdomains as new assets by default. Discovered assets are linked to their parent, tagged with the `crt.name` source, and scheduled gradually to avoid an immediate scan storm.
 
-Bu pasif keşif yalnızca public sertifika şeffaflığı ve `crt.name` indeksinde görülen isimleri kapsar; bir hostname’in halen canlı veya kuruma ait olduğunu tek başına kanıtlamaz. Ücretsiz servis IP başına günlük 100 istekle sınırlıdır. Kök domain dış servise gönderildiği için seçenek kullanıcıya açıkça gösterilir ve istenirse kapatılabilir.
+This passive discovery covers only names visible in public certificate transparency data and the `crt.name` index. It does not prove that a hostname is still live or owned by the organization. The free service is limited to 100 requests per IP per day. Because the apex domain is sent to an external service, the option is clearly presented and can be disabled.
 
-## Alarm kataloğu
+## Alert catalog
 
-| Kural                                | Varsayılan önem              | Kaynak                          |
-| ------------------------------------ | ---------------------------- | ------------------------------- |
-| Sertifika süresi dolmuş              | Kritik                       | Native TLS                      |
-| Yenileme penceresine girmiş          | Kalan güne göre düşük–yüksek | Native TLS                      |
-| Hostname/SAN eşleşmiyor              | Yüksek                       | Native TLS                      |
-| Zincir güvenilir değil               | Yüksek                       | Native TLS                      |
-| Sertifika henüz geçerli değil        | Yüksek                       | Native TLS                      |
-| Zayıf açık anahtar / imza            | Yüksek                       | Native TLS                      |
-| TLS 1.0 veya 1.1 etkin               | Yüksek                       | Native TLS                      |
-| TLS 1.2 bulunamadı                   | Yüksek                       | Native TLS                      |
-| HSTS eksik                           | Orta                         | Native HTTP                     |
-| Temel HTTP güvenlik başlıkları eksik | Orta                         | Native HTTP                     |
-| Server başlığı teknoloji ifşası      | Düşük                        | Native HTTP                     |
-| Eski X-XSS-Protection etkin          | Düşük                        | Native HTTP                     |
-| Cookie SameSite eksik                | Düşük                        | Native HTTP                     |
-| Public DNS’te private IP             | Yüksek                       | Yapılandırılmış public resolver |
-| DNSSEC eksik                         | Orta                         | Yapılandırılmış public resolver |
-| DMARC eksik / zayıf politika         | Orta–yüksek                  | Yapılandırılmış public resolver |
-| SPF eksik / hatalı                   | Orta–yüksek                  | Yapılandırılmış public resolver |
-| testssl.sh JSON bulguları            | Dinamik                      | testssl.sh                      |
+| Rule | Default severity | Source |
+| --- | --- | --- |
+| Certificate expired | Critical | Native TLS |
+| Certificate entered renewal window | Low–high by days remaining | Native TLS |
+| Hostname/SAN mismatch | High | Native TLS |
+| Untrusted certificate chain | High | Native TLS |
+| Certificate not yet valid | High | Native TLS |
+| Weak public key or signature | High | Native TLS |
+| TLS 1.0 or 1.1 enabled | High | Native TLS |
+| TLS 1.2 unavailable | High | Native TLS |
+| HSTS missing | Medium | Native HTTP |
+| Baseline HTTP security headers missing | Medium | Native HTTP |
+| Server header technology disclosure | Low | Native HTTP |
+| Obsolete X-XSS-Protection enabled | Low | Native HTTP |
+| Cookie SameSite missing | Low | Native HTTP |
+| Private IP exposed in public DNS | High | Configured public resolver |
+| DNSSEC missing | Medium | Configured public resolver |
+| DMARC missing or weak | Medium–high | Configured public resolver |
+| SPF missing or invalid | Medium–high | Configured public resolver |
+| testssl.sh JSON findings | Dynamic | testssl.sh |
 
-Bir probe timeout veya parser hatası verirse kural sonucu `unknown` olur. `unknown`, mevcut incident’ı kapatmaz. Incident yalnızca aynı kuralın güvenilir bir taramada `pass` dönmesiyle otomatik çözülür.
+If a probe times out or its parser fails, the rule returns `unknown`. An `unknown` result never closes an existing incident; only a reliable `pass` for the same rule can auto-resolve it.
 
-## Yapılandırma
+## Configuration
 
-Tüm seçenekler ve güvenli varsayılanlar [.env.example](.env.example) içinde belgelenmiştir.
+All options and secure defaults are documented in [.env.example](.env.example).
 
-Önemli seçenekler:
+| Variable | Default | Description |
+| --- | --- | --- |
+| `TLS_SENTINEL_API_HOST` | `0.0.0.0` | API bind address; application policy still controls actual access |
+| `TLS_SENTINEL_WEB_HOST` | `0.0.0.0` | Web-console bind address |
+| `TLS_SENTINEL_UI_ORIGINS` | localhost origins | Additional console origins that are always trusted |
+| `TLS_SENTINEL_ALLOW_PRIVATE_TARGETS` | `false` | Globally allows internal-network targets |
+| `TLS_SENTINEL_PUBLIC_DNS_RESOLVER` | disabled | Enables public DNS, DNSSEC, DMARC, and SPF rules |
+| `TLS_SENTINEL_CRT_NAME_ENABLED` | `true` | Allows optional crt.name discovery when adding an asset |
+| `TLS_SENTINEL_CRT_NAME_LIMIT` | `200` | Maximum assets created in one discovery (`1–500`) |
+| `TLS_SENTINEL_TESTSSL_PATH` | `testssl.sh` | Scanner executable path |
+| `TLS_SENTINEL_MAX_CONCURRENT_SCANS` | `2` | Global concurrent-scan limit |
+| `TLS_SENTINEL_DATA_DIR` | `./data` | SQLite and raw testssl artifact directory |
+| `TLS_SENTINEL_SECRET_KEY` | automatic `/data/.secret-key` | Webhook-secret encryption key; may come from an external secret manager |
+| `TLS_SENTINEL_TRUST_PROXY` | `false` | Trusts the real client IP only behind an explicitly trusted reverse proxy |
 
-| Değişken                             | Varsayılan                   | Açıklama                                                                   |
-| ------------------------------------ | ---------------------------- | -------------------------------------------------------------------------- |
-| `TLS_SENTINEL_API_HOST`              | `0.0.0.0`                    | API bind adresi; gerçek erişim uygulama politikasıyla sınırlandırılır      |
-| `TLS_SENTINEL_WEB_HOST`              | `0.0.0.0`                    | Web paneli bind adresi                                                     |
-| `TLS_SENTINEL_UI_ORIGINS`            | localhost origin’leri        | Daima güvenilen ek panel origin’leri                                       |
-| `TLS_SENTINEL_ALLOW_PRIVATE_TARGETS` | `false`                      | İç ağ hedeflerini global olarak açar                                       |
-| `TLS_SENTINEL_PUBLIC_DNS_RESOLVER`   | kapalı                       | Public DNS, DNSSEC, DMARC ve SPF kurallarını etkinleştirir                 |
-| `TLS_SENTINEL_CRT_NAME_ENABLED`      | `true`                       | Asset eklerken isteğe bağlı crt.name subdomain keşfine izin verir          |
-| `TLS_SENTINEL_CRT_NAME_LIMIT`        | `200`                        | Bir keşifte eklenecek yeni asset üst sınırı (`1–500`)                      |
-| `TLS_SENTINEL_TESTSSL_PATH`          | `testssl.sh`                 | Scanner executable yolu                                                    |
-| `TLS_SENTINEL_MAX_CONCURRENT_SCANS`  | `2`                          | Global eşzamanlı tarama limiti                                             |
-| `TLS_SENTINEL_DATA_DIR`              | `./data`                     | SQLite ve ham testssl artifact dizini                                      |
-| `TLS_SENTINEL_SECRET_KEY`            | otomatik `/data/.secret-key` | Webhook secret şifreleme anahtarı; harici secret manager ile verilebilir   |
-| `TLS_SENTINEL_TRUST_PROXY`           | `false`                      | Yalnızca güvenilen reverse proxy arkasında gerçek istemci IP’sini kullanır |
+For LAN access, open **Settings → LAN access** from localhost and add the actual console origin you will use, such as `http://192.168.1.20:3000`. Authentication cannot be disabled while LAN access is enabled. A remote first-time setup also requires the one-time code printed by the server.
 
-LAN erişimi için localhost’tan **Ayarlar → LAN erişimi** seçeneğini açın ve tarayıcıda kullanacağınız gerçek adresi (ör. `http://192.168.1.20:3000`) izinli panel origin’lerine ekleyin. LAN açıkken kimlik doğrulama kapatılamaz. İlk kurulum uzaktan yapılıyorsa sunucu konsolunda gösterilen tek kullanımlık kurulum kodu da istenir.
+The rebrand to HostCanvas deliberately keeps the `TLS_SENTINEL_*` environment variables, `tlsentinel.db` filename, and legacy backup format to avoid breaking existing installations and automation.
 
-HostCanvas adıyla yeniden markalanan bu sürüm, mevcut kurulumların veri dizinlerini ve otomasyonlarını bozmamak için `TLS_SENTINEL_*` ortam değişkenlerini, `tlsentinel.db` veritabanı adını ve eski yedek dosyası biçimini geriye dönük uyumluluk amacıyla korur.
+Do not expose HostCanvas directly to the public internet. If remote access is required, place it behind a VPN or Zero Trust access layer, use an organizational certificate, and restrict the origin allowlist to the real console address. Do not set `NEXT_PUBLIC_TLS_SENTINEL_API_URL` for normal LAN deployments; under HTTPS, the console uses the same origin for the API.
 
-Uygulamayı doğrudan internete yayınlamayın. İnternet erişimi gerekiyorsa VPN/Zero Trust erişim katmanı arkasına alın, kurumsal sertifika kullanın ve izinli origin listesini gerçek panel adresleriyle sınırlandırın. `NEXT_PUBLIC_TLS_SENTINEL_API_URL` değerini normal LAN kurulumlarında tanımlamayın; HTTPS kullanıldığında panel API’yi aynı origin üzerinden çağırır.
+## Roles and notifications
 
-## Roller ve bildirimler
+| Role | Access |
+| --- | --- |
+| `admin` | Full access, including workspace, teams, webhooks, audit, retention, and backups |
+| `operator` | Add, edit, archive, and scan assets; manage incident status |
+| `viewer` | Read-only access to dashboards, assets, scans, checks, and incidents |
 
-| Rol        | Yetki                                                                         |
-| ---------- | ----------------------------------------------------------------------------- |
-| `admin`    | Çalışma alanı, ekip, webhook, audit, retention ve yedekler dahil tüm işlemler |
-| `operator` | Asset ekleme/düzenleme/arşivleme, tarama ve incident durum yönetimi           |
-| `viewer`   | Dashboard, asset, scan, check ve incident verilerine salt okunur erişim       |
+Manage users and webhook channels under **Settings → Administration center**. The API never returns the full webhook URL. Only `https://` URLs on port `443` are accepted; destination DNS is validated against the public-IP policy and connections are pinned to the validated IP.
 
-Yeni kullanıcıları ve webhook kanallarını **Ayarlar → Yönetim merkezi** bölümünden yönetin. Webhook URL’sinin tamamı API’ye geri verilmez. Yalnızca `https://` ve port `443` kabul edilir; hedef DNS cevabı bağlantıdan önce public IP politikasıyla doğrulanır ve bağlantı doğrulanan IP’ye sabitlenir.
+## Backup and maintenance
 
-## Yedekleme ve bakım
-
-Bakım işi saatlik kontrol edilir; varsayılan olarak 24 saatte bir doğrulanmış SQLite yedeği oluşturur, 14 yedek saklar, 180 günden eski tamamlanmış scan geçmişini ve 30 günden eski testssl artifact’larını temizler. Tüm değerler **Ayarlar → Yönetim merkezi → Veri** altında değiştirilebilir.
+The hourly maintenance job creates a verified SQLite backup every 24 hours by default, retains 14 backups, removes completed scan history older than 180 days, and removes testssl artifacts older than 30 days. Configure these values under **Settings → Administration center → Data**.
 
 ```bash
 npm run backup
-# Uygulamayı durdurduktan sonra:
-npm run restore -- /tam/yol/tlsentinel-YYYYMMDDTHHMMSSZ.db --confirm
+# Stop the application before restoring:
+npm run restore -- /absolute/path/tlsentinel-YYYYMMDDTHHMMSSZ.db --confirm
 ```
 
-Geri yükleme aracı kaynak yedeğe `PRAGMA quick_check` uygular, gerekli tabloları doğrular, mevcut veritabanı kilitliyse durur ve değiştirmeden önce `data/backups/pre-restore-*` kurtarma kopyası oluşturur. Ayrıntılı runbook için [docs/operations.md](docs/operations.md) belgesine bakın.
+The restore utility runs `PRAGMA quick_check`, verifies required tables, stops when the current database is locked, and creates a `data/backups/pre-restore-*` recovery copy before replacement. See [docs/operations.md](docs/operations.md) for the complete runbook.
 
-## Komutlar
+## Commands
 
 ```bash
-npm run dev       # web + API, watch mode
-npm test          # güvenlik, kural ve incident testleri
-npm run lint      # ürün kodu lint kontrolü
-npx tsc --noEmit  # TypeScript kontrolü
+npm run dev       # web + API in watch mode
+npm test          # security, rule, and incident tests
+npm run lint      # lint application code
+npx tsc --noEmit  # TypeScript check
 npm run build     # production web build
-npm start         # build sonrasında web + API
-npm run backup    # bütünlük kontrollü manuel SQLite yedeği
-npm run restore -- /yedek.db --confirm  # uygulama kapalıyken geri yükleme
+npm start         # web + API after a build
+npm run backup    # integrity-checked manual SQLite backup
+npm run restore -- /backup.db --confirm  # guarded restore while the app is stopped
 ```
 
-## Proje yapısı
+## Project structure
 
 ```text
-app/                    React operasyon paneli
+app/                    React operations console
 server/
-  api.mjs               Kurulum, oturum, LAN politikası ve tarama REST API’si
-  auth.mjs              Parola ve hashlenmiş oturum yönetimi
-  db.mjs                SQLite şeması ve incident uzlaştırma
-  scanner.mjs           Kuyruk, scheduler ve probe orkestrasyonu
-  probes/                Native TLS, HTTP, DNS, testssl adapter’ları
-  rules/                 Ağ erişimi yapmayan alarm değerlendirmeleri
-  security/              Hostname/IP normalizasyonu ve hedef politikası
-  notifications.mjs      Şifreli, SSRF-korumalı webhook teslimatı
-  maintenance.mjs        Retention ve SQLite yedekleme
-tests/                   Rule, incident, parser ve SSRF savunma testleri
-data/                    Git dışı yerel veriler
+  api.mjs               Setup, session, LAN policy, and scan REST API
+  auth.mjs              Password and hashed-session management
+  db.mjs                SQLite schema and incident reconciliation
+  scanner.mjs           Queue, scheduler, and probe orchestration
+  probes/                Native TLS, HTTP, DNS, and testssl adapters
+  rules/                 Alert evaluation without network access
+  security/              Hostname/IP normalization and target policy
+  notifications.mjs      Encrypted, SSRF-protected webhook delivery
+  maintenance.mjs        Retention and SQLite backups
+tests/                   Rule, incident, parser, and SSRF-defense tests
+data/                    Local data excluded from Git
 ```
 
-Yeni alarm eklemek için [docs/adding-a-check.md](docs/adding-a-check.md) belgesine bakın.
+See [docs/adding-a-check.md](docs/adding-a-check.md) to add a new alert.
 
-## Bilinen sınırlar ve sonraki rule-pack’ler
+## Known limitations and next rule packs
 
-- Native legacy-protokol sonucu, yerel Node/OpenSSL build’inin destekleyebildiği handshake’lerle sınırlıdır; derin doğrulama için testssl.sh kullanılmalıdır.
-- Public DNS private-IP kontrolü split-horizon yanlış pozitiflerini önlemek için sistem resolver’ını kullanmaz ve varsayılan olarak kapalıdır.
-- `crt.name` keşfi pasiftir ve dış indeks sonuçlarına bağlıdır; canlılık veya sahiplik doğrulaması değildir. Büyük sonuç kümeleri güvenli üst sınırla kesilir.
-- E-posta bildirimi, SSO/OIDC, snooze politikası ve bakım pencereleri bu sürümde yoktur.
-- Yedekler aynı data volume’unda üretildiği için afet kurtarma sayılmaz; seçili yedekleri düzenli olarak başka bir şifreli ortama kopyalayın.
-- Sonraki rule-pack adayları: dangling CNAME, beklenmeyen NS/MX değişimi, kontrollü CORS/path exposure kontrolleri, STARTTLS, OCSP stapling, certificate-transparency değişiklikleri ve servis banner politikaları.
+- Native legacy-protocol results are limited by the local Node/OpenSSL build; use testssl.sh for deeper validation.
+- The public-DNS private-IP check avoids split-horizon false positives by not using the system resolver and is disabled by default.
+- `crt.name` discovery is passive and depends on an external index; it is neither liveness nor ownership verification. Large result sets are capped safely.
+- Email notifications, SSO/OIDC, snooze policies, and maintenance windows are not included in this release.
+- Backups are produced in the same data volume and are therefore not disaster recovery; regularly copy selected backups to separate encrypted storage.
+- Candidate rule packs include dangling CNAME, unexpected NS/MX changes, controlled CORS/path-exposure checks, STARTTLS, OCSP stapling, certificate-transparency changes, and service-banner policies.
 
-SSL Labs API, yalnızca public sistemleri Qualys altyapısından taradığı ve kullanım/kota koşulları bulunduğu için temel motor yapılmadı. İleride açıkça etkinleştirilen, public varlıklara özel bir karşılaştırma adapter’ı olarak eklenebilir. Ayrıntılar için [SSL Labs API v4 dokümantasyonu](https://github.com/ssllabs/ssllabs-scan/blob/master/ssllabs-api-docs-v4.md) ve [testssl.sh resmi projesi](https://github.com/testssl/testssl.sh) referans alınmıştır.
+SSL Labs is not the primary engine because its API scans public systems from Qualys infrastructure and has usage and quota constraints. It may be added later as an explicitly enabled comparison adapter for public assets. See the [SSL Labs API v4 documentation](https://github.com/ssllabs/ssllabs-scan/blob/master/ssllabs-api-docs-v4.md) and the [official testssl.sh project](https://github.com/testssl/testssl.sh).
