@@ -254,8 +254,6 @@ data/                    Git dışı yerel veriler
 
 Yeni alarm eklemek için [docs/adding-a-check.md](docs/adding-a-check.md) belgesine bakın.
 
-Katkı süreci için [CONTRIBUTING.md](CONTRIBUTING.md), güvenlik açığı bildirmek için [SECURITY.md](SECURITY.md) belgelerini kullanın.
-
 ## Bilinen sınırlar ve sonraki rule-pack’ler
 
 - Native legacy-protokol sonucu, yerel Node/OpenSSL build’inin destekleyebildiği handshake’lerle sınırlıdır; derin doğrulama için testssl.sh kullanılmalıdır.
