@@ -1,0 +1,23 @@
+https://:3443 {
+  tls internal
+  encode zstd gzip
+
+  header {
+    Strict-Transport-Security "max-age=31536000"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    -Server
+  }
+
+  handle /api/* {
+    reverse_proxy app:8787 {
+      header_up X-Forwarded-For {remote_host}
+    }
+  }
+
+  handle {
+    reverse_proxy app:3000
+  }
+}
