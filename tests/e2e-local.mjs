@@ -55,6 +55,8 @@ assert.equal(typeof fixtureAddress, 'object');
 
 process.env.TLS_SENTINEL_DATA_DIR = join(temporaryDirectory, 'data');
 process.env.TLS_SENTINEL_ALLOW_PRIVATE_TARGETS = 'true';
+process.env.TLS_SENTINEL_PUBLIC_DNS_RESOLVER = '';
+process.env.TLS_SENTINEL_DNSSEC_RESOLVER = '';
 process.env.TLS_SENTINEL_API_PORT = '8877';
 
 const [{ createApiServer, getSetupCodeForConsole }, scanner, db] =

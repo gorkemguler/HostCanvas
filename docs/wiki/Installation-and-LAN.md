@@ -79,7 +79,8 @@ Native API/launchers load `TLS_SENTINEL_*` settings in this precedence order: al
 | `TLS_SENTINEL_TRUST_PROXY` | `false`; Compose sets it for its restricted proxy topology |
 | `TLS_SENTINEL_HTTPS_HOST` | `localhost`; Compose/Caddy host or IPv4 address |
 | `TLS_SENTINEL_ALLOW_PRIVATE_TARGETS` | `false`; also requires the asset-level internal-target opt-in |
-| `TLS_SENTINEL_PUBLIC_DNS_RESOLVER` | Unset; public-DNS/email policy checks disabled until configured |
+| `TLS_SENTINEL_PUBLIC_DNS_RESOLVER` | Unset; public-DNS disclosure, CAA and email policy checks disabled until configured |
+| `TLS_SENTINEL_DNSSEC_RESOLVER` | Unset; explicit trusted validating DNS-over-TLS hostname, TCP 853; queried asset names go to that provider |
 | `TLS_SENTINEL_CRT_NAME_ENABLED` | `true`; discovery still requires per-asset opt-in |
 | `TLS_SENTINEL_CRT_NAME_LIMIT` | 200 new subdomain assets maximum per discovery; allowed 1–500 |
 | `TLS_SENTINEL_MAX_CONCURRENT_SCANS` | 2, clamped to 1–8 |
@@ -90,6 +91,8 @@ Native API/launchers load `TLS_SENTINEL_*` settings in this precedence order: al
 Legacy `TLS_SENTINEL_*` names and `tlsentinel.db` are intentional compatibility names. See [.env.example](https://github.com/gorkemguler/HostCanvas/blob/main/.env.example) and [server/config.mjs](https://github.com/gorkemguler/HostCanvas/blob/main/server/config.mjs) for the source of truth. Do not commit `.env` files, databases, private keys, webhook secrets or real inventory exports.
 
 ## Before handing it to a team
+
+Configure workspace HSTS/cookie/CAA thresholds and scan-health incidents in **Settings → Incident check policy**. DNSSEC has a separate opt-in; the public DNS setting alone does not enable it. Read [Check policies](https://github.com/gorkemguler/HostCanvas/wiki/Check-Policies) before selecting a resolver or enabling organization-wide requirements.
 
 - Confirm HTTPS trust and LAN authentication from a second managed client.
 - Create a second enabled admin; use operator/viewer accounts for routine work.

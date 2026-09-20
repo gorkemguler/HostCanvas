@@ -36,7 +36,9 @@ Discovery is passive: it does not prove a name is live, still owned, or safe to 
 
 The application queues jobs and runs two concurrently by default (configurable 1–8). The scheduler checks due work every 30 seconds by default. Large inventories naturally take time to drain. Avoid triggering all deep scans before measuring duration and memory use.
 
-DNS resolver configuration is required for the public-DNS disclosure, DNSSEC, DMARC and SPF checks. They intentionally do not treat the system's internal split-horizon resolver as public evidence. Native TLS support conclusions can be constrained by local Node/OpenSSL capabilities; use deep scans where stronger protocol validation is needed.
+Public DNS resolver configuration is required for disclosure, CAA, DMARC and SPF checks. DNSSEC separately requires an explicitly chosen validating DNS-over-TLS resolver. The system's internal split-horizon resolver is not public disclosure evidence. Native TLS support conclusions can be constrained by local Node/OpenSSL capabilities; use deep scans where stronger protocol validation is needed.
+
+Workspace HSTS/cookie/CAA thresholds and consecutive-failure incidents are configured in Settings. See [Check policies](https://github.com/gorkemguler/HostCanvas/wiki/Check-Policies) for defaults, DNSSEC privacy/limitations and `monitor.scan_unhealthy`. An incomplete required probe produces partial/failed coverage; security findings alone do not make collection unhealthy.
 
 A deep-engine failure can yield a `partial` scan while preserving native observations and existing deep incidents. A failed scan preserves the last useful snapshot and schedules a retry after the shorter of the configured interval and 15 minutes. Therefore an old grade or expiry date beside a failed scan is historical, not fresh proof.
 

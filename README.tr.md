@@ -54,7 +54,9 @@ Kendi incident türünüzü eklemek için [ayrıntılı özel kural rehberini](d
 - `pass / fail / unknown` kural modeli
 - Açılma, sahiplenme, manuel çözme, otomatik çözme ve yeniden açılma davranışına sahip incident’lar
 - Zamanlanmış taramalar, kalıcı iş geçmişi ve restart sonrası yarım kalan işi geri alma
-- Public DNS resolver yapılandırıldığında private IP ifşası, DNSSEC, DMARC ve SPF kontrolleri
+- Public DNS resolver yapılandırıldığında private IP ifşası, CAA, DMARC ve SPF kontrolleri
+- Açık onayla etkinleştirilen, kimliği doğrulanmış DNS-over-TLS resolver üzerinden DNSSEC durumu
+- Ayarlanabilir HSTS/cookie/CAA politikaları ve kalıcı ardışık tarama hatası incident’ları
 - Yeni bir kök domain eklenirken isteğe bağlı `crt.name` subdomain keşfi ve kaynak ilişkisi
 - CSV envanter çıktısı
 - İlk çalıştırma sihirbazı: dil, kurum, erişim politikası, yönetici hesabı, tarama varsayılanları ve ilk varlık
@@ -177,17 +179,29 @@ Bu pasif keşif yalnızca public sertifika şeffaflığı ve `crt.name` indeksin
 | TLS 1.0 veya 1.1 etkin               | Yüksek                       | Native TLS                      |
 | TLS 1.2 bulunamadı                   | Yüksek                       | Native TLS                      |
 | HSTS eksik                           | Orta                         | Native HTTP                     |
+| Etkisiz HSTS politikası | Orta | Native HTTP + çalışma alanı politikası |
 | Temel HTTP güvenlik başlıkları eksik | Orta                         | Native HTTP                     |
 | Server başlığı teknoloji ifşası      | Düşük                        | Native HTTP                     |
 | Eski X-XSS-Protection etkin          | Düşük                        | Native HTTP                     |
 | Cookie SameSite eksik                | Düşük                        | Native HTTP                     |
+| Cookie Secure eksik | Düşük | Native HTTP |
+| Tanımlı oturum cookie’sinde HttpOnly eksik | Orta | Native HTTP + açıkça belirtilen cookie adları |
 | Public DNS’te private IP             | Yüksek                       | Yapılandırılmış public resolver |
-| DNSSEC eksik                         | Orta                         | Yapılandırılmış public resolver |
+| CAA politika uyumsuzluğu | Düşük | Public resolver + çalışma alanı politikası |
+| DNSSEC eksik | Orta | İsteğe bağlı doğrulayıcı DNS-over-TLS resolver |
+| DNSSEC doğrulama hatası | Yüksek | Resolver’ın TLS üzerinden bildirdiği DNSSEC hatası |
+| Ardışık eksik taramalar | Orta | Kalıcı tarama geçmişi |
 | DMARC eksik / zayıf politika         | Orta–yüksek                  | Yapılandırılmış public resolver |
 | SPF eksik / hatalı                   | Orta–yüksek                  | Yapılandırılmış public resolver |
 | testssl.sh JSON bulguları            | Dinamik                      | testssl.sh                      |
 
 Bir probe timeout veya parser hatası verirse kural sonucu `unknown` olur. `unknown`, mevcut incident’ı kapatmaz. Incident yalnızca aynı kuralın güvenilir bir taramada `pass` dönmesiyle otomatik çözülür.
+
+### Kontrol politikası
+
+Yöneticiler **Ayarlar → Incident kontrol politikası** bölümünden eşikleri değiştirebilir. Varsayılanlar: HSTS için en az 180 gün, isteğe bağlı `includeSubDomains`, açık Secure kontrolü, boş oturum cookie listesi, isteğe bağlı CAA ve üç ardışık `failed`/`partial` taramadan sonra tarama sağlığı incident’ı. HttpOnly kontrolü yalnızca açıkça listelenen oturum cookie adlarına uygulanır; cookie değerleri saklanmaz. Başarılı tarama hata sayacını sıfırlar ve tarama sağlığı incident’ını çözer; ilgisiz güvenlik bulgularını kapatmaz.
+
+Politika yerelde saklanır ve sonraki tarama başladığında uygulanır. Kontrolü kapatmak eski incident’larını çözmez. DNSSEC artık ayrı `TLS_SENTINEL_DNSSEC_RESOLVER` onayı gerektirir; yalnızca public DNS ayarı yeterli değildir. Davranış, gizlilik, API örnekleri ve sınırlamalar için [ayrıntılı politika rehberini](docs/wiki/Kontrol-Politikalari.md) okuyun.
 
 ## Yapılandırma
 
@@ -201,7 +215,8 @@ Tüm seçenekler ve güvenli varsayılanlar [.env.example](.env.example) içinde
 | `TLS_SENTINEL_WEB_HOST`              | `0.0.0.0`                    | Web paneli bind adresi                                                     |
 | `TLS_SENTINEL_UI_ORIGINS`            | localhost origin’leri        | Daima güvenilen ek panel origin’leri                                       |
 | `TLS_SENTINEL_ALLOW_PRIVATE_TARGETS` | `false`                      | İç ağ hedeflerini global olarak açar                                       |
-| `TLS_SENTINEL_PUBLIC_DNS_RESOLVER`   | kapalı                       | Public DNS, DNSSEC, DMARC ve SPF kurallarını etkinleştirir                 |
+| `TLS_SENTINEL_PUBLIC_DNS_RESOLVER` | kapalı | Public DNS ifşası, CAA, DMARC ve SPF kurallarını etkinleştirir |
+| `TLS_SENTINEL_DNSSEC_RESOLVER` | kapalı | Güvenilen doğrulayıcı DNS-over-TLS hostname’i; TCP 853; sorgulanan adlar sağlayıcıya gönderilir |
 | `TLS_SENTINEL_CRT_NAME_ENABLED`      | `true`                       | Asset eklerken isteğe bağlı crt.name subdomain keşfine izin verir          |
 | `TLS_SENTINEL_CRT_NAME_LIMIT`        | `200`                        | Bir keşifte eklenecek yeni asset üst sınırı (`1–500`)                      |
 | `TLS_SENTINEL_TESTSSL_PATH`          | `testssl.sh`                 | Scanner executable yolu                                                    |

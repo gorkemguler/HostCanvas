@@ -1,6 +1,12 @@
+import {
+  evaluateSecurityPolicy,
+  securityPolicyCatalog,
+} from './security-policy.mjs';
+
 const dayMs = 86_400_000;
 
 export const ruleCatalog = [
+  ...securityPolicyCatalog,
   {
     key: 'cert.expired',
     title: 'Sertifika süresi dolmuş',
@@ -133,9 +139,9 @@ export const ruleCatalog = [
     title: 'DNSSEC koruması bulunamadı',
     category: 'DNS',
     severity: 'medium',
-    source: 'Public DNS',
+    source: 'DNS-over-TLS',
     enabled: false,
-    requires: 'TLS_SENTINEL_PUBLIC_DNS_RESOLVER',
+    requires: 'TLS_SENTINEL_DNSSEC_RESOLVER',
     recommendedCadence: 'weekly',
   },
   {
@@ -191,7 +197,11 @@ function expirySeverity(daysRemaining, warningDays) {
   return 'low';
 }
 
-export function evaluateObservations(observations, policy) {
+export function evaluateObservations(
+  observations,
+  policy = {},
+  checkPolicy = {},
+) {
   const results = [];
   const certificate = observations.tls?.certificate;
   const now = Date.now();
@@ -489,26 +499,6 @@ export function evaluateObservations(observations, policy) {
           ),
     );
 
-    const dnssec = publicDns.dnssec;
-    results.push(
-      dnssec?.status === 'missing'
-        ? evaluation('dns.dnssec_missing', 'fail', {
-            severity: 'medium',
-            title: 'DNSSEC koruması bulunamadı',
-            description: `${dnssec.domain || 'Hedef domain'} için doğrulanabilir DS/DNSKEY zinciri bulunamadı.`,
-            evidence: {
-              resolver: publicDns.resolver,
-              domain: dnssec.domain,
-              dnskeyCount: dnssec.dnskeyRecords?.length || 0,
-              dsCount: dnssec.dsRecords?.length || 0,
-            },
-          })
-        : evaluation(
-            'dns.dnssec_missing',
-            dnssec?.status === 'present' ? 'pass' : 'unknown',
-          ),
-    );
-
     const dmarc = publicDns.dmarc;
     results.push(
       dmarc?.status === 'missing'
@@ -575,7 +565,6 @@ export function evaluateObservations(observations, policy) {
   } else {
     for (const key of [
       'dns.public_private_ip',
-      'dns.dnssec_missing',
       'email.dmarc_missing',
       'email.dmarc_policy_weak',
       'email.spf_misconfiguration',
@@ -598,6 +587,7 @@ export function evaluateObservations(observations, policy) {
     );
   }
 
+  results.push(...evaluateSecurityPolicy(observations, checkPolicy));
   return results;
 }
 

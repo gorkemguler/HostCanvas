@@ -114,11 +114,13 @@ Buradaki `enabled`, katalog bilgisidir; bütün kurallar için çalışan genel 
 
 ### 3. Fonksiyonu değerlendirme akışına bağlayın
 
-Aynı dosyadaki `evaluateObservations(observations, policy)` fonksiyonunun sonundaki `return results;` satırından hemen önce:
+Aynı dosyadaki `evaluateObservations(observations, policy, checkPolicy)` fonksiyonunun sonundaki `return results;` satırından hemen önce:
 
 ```js
 results.push(evaluateCertificateValidity(observations, { maxDays: 90 }));
 ```
+
+`policy`, asset politikasıdır; isteğe bağlı üçüncü `checkPolicy` argümanı kaydedilen global HSTS/cookie/CAA politikasıdır. İki argümanlı mevcut çağrılar global varsayılanları kullanır. Bu örnek kendi sabit `maxDays` ayarını kullanır. Düzenlenebilir özel ayar için doğrulama, saklama ve admin UI genişletilmelidir; `/api/check-policy` adresine rastgele alan göndermek yetmez (bilinmeyen alanlar reddedilir). Bkz. [Kontrol politikaları](https://github.com/gorkemguler/HostCanvas/wiki/Kontrol-Politikalari).
 
 Bu çağrıyı DNS/HTTP/deep kontrolüne ait koşullu blokların içine koymayın. Örnek mevcut TLS verisini kullanır; yeni probe, `server/scanner.mjs` değişikliği veya veritabanı migration’ı gerekmez. Native TLS verisi iki profilde de toplandığı için hem native hem deep taramada değerlendirilir.
 

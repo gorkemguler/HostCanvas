@@ -2,6 +2,7 @@ import { Resolver } from 'node:dns/promises';
 
 import { PUBLIC_DNS_RESOLVER } from '../config.mjs';
 import { isPublicAddress } from '../security/targets.mjs';
+import { probeDnssec } from './dnssec.mjs';
 
 const notFoundCodes = new Set(['ENODATA', 'ENOTFOUND', 'ENODOMAIN', 'ENONAME']);
 const commonSecondLevelSuffixes = new Set([
@@ -133,51 +134,41 @@ async function probeDmarc(resolver, hostname) {
   };
 }
 
-async function probeDnssec(resolver, hostname) {
-  for (const domain of domainCandidates(hostname)) {
-    const dnskey = await safeResolve(() => resolver.resolve(domain, 'DNSKEY'));
-    if (dnskey.status === 'unknown') {
+export async function probeCaa(resolver, hostname) {
+  const labels = hostname.split('.');
+  // RFC 8659: look for the first effective RRset, climbing only when absent.
+  // resolveCaa follows DNS aliases. A timeout must never fall through to parent.
+  for (let index = 0; index < labels.length && index < 16; index += 1) {
+    const domain = labels.slice(index).join('.');
+    const query = await safeResolve(() => resolver.resolveCaa(domain));
+    if (query.status !== 'complete') return { ...query, domain };
+    if (query.records.length > 64)
       return {
         status: 'unknown',
         domain,
-        dnskeyRecords: [],
-        dsRecords: [],
-        error: dnskey.error,
+        records: [],
+        error: 'CAA_RECORD_LIMIT',
       };
-    }
-    if (!dnskey.records.length) continue;
-    const ds = await safeResolve(() => resolver.resolve(domain, 'DS'));
-    if (ds.status === 'unknown') {
-      return {
-        status: 'unknown',
-        domain,
-        dnskeyRecords: dnskey.records,
-        dsRecords: [],
-        error: ds.error,
-      };
-    }
-    return {
-      status: ds.records.length ? 'present' : 'missing',
-      domain,
-      dnskeyRecords: dnskey.records,
-      dsRecords: ds.records,
-    };
+    if (query.records.length)
+      return { status: 'complete', domain, records: query.records };
   }
   return {
-    status: 'missing',
-    domain: domainCandidates(hostname).at(-1) || hostname,
-    dnskeyRecords: [],
-    dsRecords: [],
+    status: labels.length > 16 ? 'unknown' : 'complete',
+    domain: hostname,
+    records: [],
+    ...(labels.length > 16 ? { error: 'CAA_DEPTH_LIMIT' } : {}),
   };
 }
 
 export async function probePublicDns(hostname, options = {}) {
   const publicDnsResolver = options.publicDnsResolver ?? PUBLIC_DNS_RESOLVER;
+  const dnssecTask = (options.dnssecProbe || probeDnssec)(hostname);
   if (!publicDnsResolver && !options.resolver) {
     return {
       status: 'disabled',
       resolver: null,
       records: [],
+      dnssec: await dnssecTask,
       reason: 'TLS_SENTINEL_PUBLIC_DNS_RESOLVER ayarlanmamış.',
     };
   }
@@ -186,13 +177,15 @@ export async function probePublicDns(hostname, options = {}) {
     options.resolver || new Resolver({ timeout: 2_000, tries: 2 });
   if (!options.resolver) resolver.setServers([publicDnsResolver]);
 
-  const [ipv4, ipv6, txt, dmarc, dnssec] = await Promise.all([
+  const deadline = setTimeout(() => resolver.cancel?.(), 8_000);
+  const [ipv4, ipv6, txt, dmarc, dnssec, caa] = await Promise.all([
     safeResolve(() => resolver.resolve4(hostname, { ttl: true })),
     safeResolve(() => resolver.resolve6(hostname, { ttl: true })),
     safeResolve(() => resolver.resolveTxt(hostname)),
     probeDmarc(resolver, hostname),
-    probeDnssec(resolver, hostname),
-  ]);
+    dnssecTask,
+    probeCaa(resolver, hostname),
+  ]).finally(() => clearTimeout(deadline));
   const records = [
     ...ipv4.records.map((record) => ({ type: 'A', ...record })),
     ...ipv6.records.map((record) => ({ type: 'AAAA', ...record })),
@@ -203,6 +196,7 @@ export async function probePublicDns(hostname, options = {}) {
     txt.status,
     dmarc.status,
     dnssec.status,
+    caa.status,
   ];
   return {
     status: statuses.includes('unknown') ? 'partial' : 'complete',
@@ -216,5 +210,6 @@ export async function probePublicDns(hostname, options = {}) {
     spf: analyzeSpf(txt),
     dmarc,
     dnssec,
+    caa,
   };
 }

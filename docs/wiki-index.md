@@ -6,6 +6,7 @@ The Markdown files below are the versioned source for the [GitHub Wiki](https://
 | --- | --- |
 | [Installation and LAN](wiki/Installation-and-LAN.md) | [Kurulum ve LAN](wiki/Kurulum-ve-LAN.md) |
 | [Inventory, scanning and incidents](wiki/Inventory-Scanning-and-Incidents.md) | [Envanter, tarama ve incident](wiki/Envanter-Tarama-ve-Incidentlar.md) |
+| [Incident check policies](wiki/Check-Policies.md) | [Incident kontrol politikaları](wiki/Kontrol-Politikalari.md) |
 | [Creating custom incident types](wiki/Custom-Incident-Types.md) | [Kendi incident türünü oluşturma](wiki/Ozel-Incident-Turu-Olusturma.md) |
 | [Operations and troubleshooting](wiki/Operations-and-Troubleshooting.md) | [Operasyon ve sorun giderme](wiki/Operasyon-ve-Sorun-Giderme.md) |
 

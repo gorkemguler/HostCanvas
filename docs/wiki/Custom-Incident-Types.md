@@ -112,11 +112,13 @@ Important: `enabled` is catalog metadata, **not a universal runtime switch**. `r
 
 ### 3. Wire the evaluator into the running engine
 
-Inside `evaluateObservations(observations, policy)`, immediately before its final `return results;`, add:
+Inside `evaluateObservations(observations, policy, checkPolicy)`, immediately before its final `return results;`, add:
 
 ```js
 results.push(evaluateCertificateValidity(observations, { maxDays: 90 }));
 ```
+
+`policy` is the asset policy; the optional third argument `checkPolicy` is the saved workspace HSTS/cookie/CAA policy. Existing two-argument callers use workspace defaults. This example uses its own fixed `maxDays` setting. Adding editable custom settings requires extending validation, persistence and the admin UI; it is not enough to send arbitrary new keys to `/api/check-policy` (unknown keys are rejected). See [Check policies](https://github.com/gorkemguler/HostCanvas/wiki/Check-Policies).
 
 Keep this outside branches belonging to unrelated HTTP, DNS or deep-scan checks. This example reuses native TLS observations, so it needs no change to `server/scanner.mjs`, no new network probe, and no database migration. It will run in both native and deep profiles because both collect native TLS data.
 

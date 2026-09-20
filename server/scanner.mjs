@@ -9,12 +9,14 @@ import {
   createScan,
   finishScan,
   getAsset,
+  getCheckPolicy,
   getDueAssets,
   listAssets,
   listQueuedScans,
   markScanRunning,
   reconcileIncidents,
   recoverInterruptedScans,
+  recordScanHealth,
 } from './db.mjs';
 import { probePublicDns } from './probes/dns.mjs';
 import {
@@ -67,6 +69,13 @@ async function executeScan(scan) {
     return;
   }
 
+  const checkPolicy = getCheckPolicy().policy;
+  // DNS diagnostics can still explain a TLS target-resolution failure.
+  const publicDnsTask = probePublicDns(asset.hostname).catch((error) => ({
+    status: 'partial',
+    records: [],
+    error: safeError(error),
+  }));
   try {
     const allowPrivate = ALLOW_PRIVATE_TARGETS && asset.allowPrivate;
     const resolved = await resolveAndValidateTarget(asset.hostname, {
@@ -81,9 +90,12 @@ async function executeScan(scan) {
 
     const [tlsObservation, httpObservation, publicDnsObservation] =
       await Promise.all([
-        probeTls(target),
+        probeTls(target).catch((error) => ({
+          status: 'unknown',
+          error: safeError(error),
+        })),
         probeHttpHeaders(target),
-        probePublicDns(asset.hostname),
+        publicDnsTask,
       ]);
 
     const observations = {
@@ -112,7 +124,13 @@ async function executeScan(scan) {
       return;
     }
 
-    let scanStatus = 'succeeded';
+    let scanStatus = !tlsObservation.certificate
+      ? 'failed'
+      : httpObservation.status === 'unknown' ||
+          publicDnsObservation.status === 'partial' ||
+          publicDnsObservation.dnssec?.status === 'unknown'
+        ? 'partial'
+        : 'succeeded';
     let testsslVersion = null;
     if (scan.profile === 'deep') {
       try {
@@ -127,7 +145,8 @@ async function executeScan(scan) {
           findings: [],
         };
       }
-      if (observations.testssl.status !== 'complete') scanStatus = 'partial';
+      if (observations.testssl.status !== 'complete' && scanStatus !== 'failed')
+        scanStatus = 'partial';
     }
 
     if (!getAsset(scan.assetId)?.enabled) {
@@ -140,7 +159,7 @@ async function executeScan(scan) {
       return;
     }
 
-    const evaluations = evaluateObservations(observations, asset);
+    const evaluations = evaluateObservations(observations, asset, checkPolicy);
     const grade = gradeEvaluations(evaluations);
     const scannerVersion = testsslVersion
       ? `${APP_NAME} ${APP_VERSION} · testssl.sh ${testsslVersion}`
@@ -150,6 +169,8 @@ async function executeScan(scan) {
       status: scanStatus,
       grade,
       scannerVersion,
+      errorCode: tlsObservation.error?.code,
+      errorMessage: tlsObservation.error?.message,
       observations: { ...observations, evaluations },
     });
     const notificationEvents = reconcileIncidents(
@@ -163,15 +184,38 @@ async function executeScan(scan) {
             : [],
       },
     );
-    dispatchNotifications(notificationEvents);
+    const healthEvents = recordScanHealth(
+      asset.id,
+      scan.id,
+      scanStatus === 'succeeded',
+      scanStatus === 'failed'
+        ? tlsObservation.error?.code || 'TLS_UNAVAILABLE'
+        : 'PROBE_COVERAGE_INCOMPLETE',
+      checkPolicy,
+    );
+    dispatchNotifications([...notificationEvents, ...healthEvents]);
   } catch (error) {
     const safe = safeError(error);
+    const publicDns = await publicDnsTask;
+    const evaluations = evaluateObservations({ publicDns }, asset, checkPolicy);
     finishScan(scan.id, {
       status: 'failed',
       errorCode: safe.code,
       errorMessage: safe.message,
       scannerVersion: `${APP_NAME} ${APP_VERSION}`,
+      observations: { schemaVersion: 1, publicDns, evaluations },
     });
+    if (getAsset(asset.id)?.enabled) {
+      const events = reconcileIncidents(asset.id, scan.id, evaluations);
+      const healthEvents = recordScanHealth(
+        asset.id,
+        scan.id,
+        false,
+        safe.code,
+        checkPolicy,
+      );
+      dispatchNotifications([...events, ...healthEvents]);
+    }
   }
 }
 

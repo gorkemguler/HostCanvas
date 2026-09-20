@@ -9,6 +9,8 @@ import test, { after } from 'node:test';
 const temporaryDirectory = mkdtempSync(join(tmpdir(), 'hostcanvas-probes-'));
 process.env.TLS_SENTINEL_DATA_DIR = join(temporaryDirectory, 'data');
 process.env.TLS_SENTINEL_ALLOW_PRIVATE_TARGETS = 'true';
+process.env.TLS_SENTINEL_PUBLIC_DNS_RESOLVER = '';
+process.env.TLS_SENTINEL_DNSSEC_RESOLVER = '';
 process.env.TLS_SENTINEL_TESTSSL_PATH = join(
   temporaryDirectory,
   'missing-testssl',
@@ -98,7 +100,8 @@ test('HTTP header probe h2 sunan TLS sunucusunda HTTP/1.1 müzakere eder', async
   assert.equal(JSON.stringify(result).includes('not-retained'), false);
 });
 
-test('deep engine başarısızlığı native bulguları ve mevcut deep incidentları korur', async () => {
+test('deep failures preserve findings, open a coverage incident at threshold, and native recovery resolves only coverage', async () => {
+  db.updateCheckPolicy({ scanFailureThreshold: 2 });
   const asset = db.createAsset({
     hostname: 'localhost',
     port: target.port,
@@ -121,13 +124,16 @@ test('deep engine başarısızlığı native bulguları ve mevcut deep incidentl
       description: 'Must remain open until a complete deep scan.',
     },
   ]);
-  const { scan: queued } = scanner.queueAssetScan(asset.id);
-  let scan;
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    scan = db.getScan(queued.id);
-    if (!['queued', 'running'].includes(scan.status)) break;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
+  const runScan = async (profile = 'deep') => {
+    const { scan: queued } = scanner.queueAssetScan(asset.id, { profile });
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const result = db.getScan(queued.id);
+      if (!['queued', 'running'].includes(result.status)) return result;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.fail('Fixture scan did not finish within five seconds');
+  };
+  const scan = await runScan();
   assert.equal(scan.status, 'partial', scan.errorMessage);
   assert.equal(scan.observations.testssl.status, 'failed');
   assert.equal(scan.observations.testssl.error.code, 'TESTSSL_UNAVAILABLE');
@@ -138,5 +144,24 @@ test('deep engine başarısızlığı native bulguları ve mevcut deep incidentl
   );
   assert.ok(
     incidents.some((incident) => incident.ruleKey === 'testssl.heartbleed'),
+  );
+  assert.equal(
+    incidents.some((item) => item.ruleKey === 'monitor.scan_unhealthy'),
+    false,
+  );
+  assert.equal((await runScan()).status, 'partial');
+  const coverage = db
+    .listIncidents({ status: 'active' })
+    .find((item) => item.ruleKey === 'monitor.scan_unhealthy');
+  assert.ok(coverage);
+  assert.equal(coverage.evidence.consecutiveFailures, 2);
+  assert.equal(coverage.evidence.threshold, 2);
+  const recovered = await runScan('native');
+  assert.equal(recovered.status, 'succeeded');
+  assert.equal(db.getIncident(coverage.id).status, 'resolved');
+  assert.ok(
+    db
+      .listIncidents({ status: 'active' })
+      .some((item) => item.ruleKey === 'testssl.heartbleed'),
   );
 });

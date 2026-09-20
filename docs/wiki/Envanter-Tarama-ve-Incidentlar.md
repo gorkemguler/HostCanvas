@@ -36,7 +36,9 @@ Keşif pasiftir: bulunan adın canlı, hâlâ size ait veya taramaya yetkili old
 
 İşler kuyruğa alınır; varsayılan paralellik 2, yapılandırılabilir aralık 1–8’dir. Zamanlayıcı varsayılan 30 saniyede bir zamanı gelen işleri kontrol eder. Büyük envanterde kuyruğun boşalması zaman alır. Süre ve kaynak kullanımını ölçmeden bütün asset’lere deep tarama başlatmayın.
 
-Public DNS ifşası, DNSSEC, DMARC ve SPF için public resolver yapılandırması gerekir. Sistem resolver’ının split-horizon iç ağ cevabı, public ifşa kanıtı sayılmaz. Native protokol sonuçları yerel Node/OpenSSL yetenekleriyle sınırlanabilir; gerektiğinde deep profille doğrulayın.
+Public DNS ifşası, CAA, DMARC ve SPF için public resolver yapılandırması gerekir. DNSSEC ayrı olarak açıkça seçilen doğrulayıcı DNS-over-TLS resolver ister. Sistem resolver’ının split-horizon iç ağ cevabı, public ifşa kanıtı sayılmaz. Native protokol sonuçları yerel Node/OpenSSL yetenekleriyle sınırlanabilir; gerektiğinde deep profille doğrulayın.
+
+Global HSTS/cookie/CAA eşikleri ve ardışık tarama hatası incident’ları Ayarlar’dan yönetilir. Varsayılanlar, DNSSEC gizliliği/sınırları ve `monitor.scan_unhealthy` için [Kontrol politikaları](https://github.com/gorkemguler/HostCanvas/wiki/Kontrol-Politikalari) rehberine bakın. Gerekli probe eksikliği partial/failed kapsam üretir; güvenlik bulgusunun varlığı tek başına tarama sağlığını bozmaz.
 
 Deep motor hatası, native gözlemleri koruyan `partial` tarama üretebilir; önceki deep incident’ları çözmez. Başarısız taramada son kullanılabilir snapshot korunur; yapılandırılmış aralık ile 15 dakikanın küçük olanı kadar sonra yeniden deneme planlanır. Bu yüzden başarısız taramanın yanında görünen eski not/bitiş tarihi güncel kanıt değildir.
 

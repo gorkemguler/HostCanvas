@@ -48,6 +48,9 @@ export const ALLOW_PRIVATE_TARGETS = booleanFromEnvironment(
 );
 export const PUBLIC_DNS_RESOLVER =
   process.env.TLS_SENTINEL_PUBLIC_DNS_RESOLVER?.trim() || null;
+// Explicit opt-in: a validating DNS-over-TLS resolver hostname, never a URL/IP.
+export const DNSSEC_RESOLVER =
+  process.env.TLS_SENTINEL_DNSSEC_RESOLVER?.trim() || null;
 export const SUBDOMAIN_DISCOVERY_ENABLED = booleanFromEnvironment(
   'TLS_SENTINEL_CRT_NAME_ENABLED',
   true,

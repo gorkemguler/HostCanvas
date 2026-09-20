@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { probePublicDns } from '../server/probes/dns.mjs';
+import { probePublicDns, probeCaa } from '../server/probes/dns.mjs';
 
 function dnsError(code) {
   const error = new Error(code);
@@ -23,25 +23,24 @@ function resolver(overrides = {}) {
         return [['v=DMARC1; p=reject; pct=100']];
       throw dnsError('ENODATA');
     },
-    async resolve(name, type) {
-      if (name === 'example.com' && type === 'DNSKEY') {
-        return [
-          { flags: 257, protocol: 3, algorithm: 13, key: 'redacted-by-rules' },
-        ];
-      }
-      if (name === 'example.com' && type === 'DS') {
-        return [{ keyTag: 12345, algorithm: 13, digestType: 2, digest: 'abc' }];
-      }
+    async resolveCaa(name) {
+      if (name === 'example.com')
+        return [{ critical: 0, issue: 'letsencrypt.org' }];
       throw dnsError('ENODATA');
     },
     ...overrides,
   };
 }
 
-test('public DNS probu SPF, üst domain DMARC ve DNSSEC zincirini toplar', async () => {
+test('public DNS SPF, üst domain DMARC ve effective CAA toplar; DNSSEC ayrı adaptördür', async () => {
   const result = await probePublicDns('api.example.com', {
     resolver: resolver(),
     publicDnsResolver: '1.1.1.1',
+    dnssecProbe: async () => ({
+      status: 'present',
+      domain: 'api.example.com',
+      transport: 'dns-over-tls',
+    }),
   });
 
   assert.equal(result.status, 'complete');
@@ -52,7 +51,9 @@ test('public DNS probu SPF, üst domain DMARC ve DNSSEC zincirini toplar', async
   assert.equal(result.dmarc.domain, 'example.com');
   assert.equal(result.dmarc.policy, 'reject');
   assert.equal(result.dnssec.status, 'present');
-  assert.equal(result.dnssec.domain, 'example.com');
+  assert.equal(result.dnssec.domain, 'api.example.com');
+  assert.equal(result.caa.domain, 'example.com');
+  assert.equal(result.caa.records[0].issue, 'letsencrypt.org');
 });
 
 test('tek DNS sorgusu zaman aşımına uğrarsa mevcut sonuçları partial olarak korur', async () => {
@@ -63,6 +64,7 @@ test('tek DNS sorgusu zaman aşımına uğrarsa mevcut sonuçları partial olara
       },
     }),
     publicDnsResolver: '1.1.1.1',
+    dnssecProbe: async () => ({ status: 'disabled' }),
   });
 
   assert.equal(result.status, 'partial');
@@ -74,8 +76,66 @@ test('tek DNS sorgusu zaman aşımına uğrarsa mevcut sonuçları partial olara
 
 test('resolver yapılandırılmamışsa public DNS kontrollerini açıkça devre dışı bırakır', async () => {
   const result = await probePublicDns('example.com', {
-    publicDnsResolver: null,
+    publicDnsResolver: '',
+    dnssecProbe: async () => ({ status: 'disabled' }),
   });
   assert.equal(result.status, 'disabled');
   assert.match(result.reason, /PUBLIC_DNS_RESOLVER/);
+});
+
+test('CAA child RRset wins, failures never fall back, and depth is bounded', async () => {
+  let calls = 0;
+  const child = await probeCaa(
+    resolver({
+      async resolveCaa() {
+        calls++;
+        return [{ critical: 0, issue: ';' }];
+      },
+    }),
+    'api.example.com',
+  );
+  assert.equal(calls, 1);
+  assert.equal(child.domain, 'api.example.com');
+  calls = 0;
+  const incomplete = await probeCaa(
+    resolver({
+      async resolveCaa() {
+        calls++;
+        throw dnsError('ETIMEOUT');
+      },
+    }),
+    'api.example.com',
+  );
+  assert.equal(incomplete.status, 'unknown');
+  assert.equal(calls, 1);
+  calls = 0;
+  const limit = await probeCaa(
+    resolver({
+      async resolveCaa() {
+        calls++;
+        return [];
+      },
+    }),
+    'a.'.repeat(18) + 'example.com',
+  );
+  assert.equal(limit.status, 'unknown');
+  assert.equal(calls, 16);
+  const oversized = await probeCaa(
+    resolver({
+      async resolveCaa() {
+        return Array(65).fill({ critical: 0, issue: 'example.com' });
+      },
+    }),
+    'example.com',
+  );
+  assert.equal(oversized.error, 'CAA_RECORD_LIMIT');
+});
+
+test('DNSSEC remains independently available when plaintext public DNS checks are disabled', async () => {
+  const result = await probePublicDns('example.com', {
+    publicDnsResolver: null,
+    dnssecProbe: async () => ({ status: 'bogus', extendedErrors: [6] }),
+  });
+  assert.equal(result.status, 'disabled');
+  assert.equal(result.dnssec.status, 'bogus');
 });

@@ -3,6 +3,7 @@ import { chmodSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { acquireStateLock, releaseStateLock } from './state-lock.mjs';
+import { defaultCheckPolicy, validateCheckPolicy } from './rules/policy.mjs';
 
 import {
   ARTIFACT_DIRECTORY,
@@ -64,6 +65,18 @@ secureRegularFile(`${DATABASE_PATH}-wal`);
 secureRegularFile(`${DATABASE_PATH}-shm`);
 
 database.exec(`
+  CREATE TABLE IF NOT EXISTS check_policy (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    policy_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS scan_health_state (
+    asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    last_scan_id TEXT,
+    last_success_at TEXT,
+    updated_at TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS assets (
     id TEXT PRIMARY KEY,
     hostname TEXT NOT NULL COLLATE NOCASE,
@@ -289,6 +302,12 @@ database
   )
   .run(new Date().toISOString());
 database
+  .prepare(
+    `INSERT OR IGNORE INTO schema_migrations (version, name, applied_at)
+     VALUES (4, 'check-policy-and-persistent-scan-health', ?)`,
+  )
+  .run(new Date().toISOString());
+database
   .prepare('DELETE FROM sessions WHERE expires_at <= ?')
   .run(new Date().toISOString());
 database.exec('PRAGMA optimize');
@@ -427,6 +446,78 @@ export function getAppSettings() {
   return shapeAppSettings(
     database.prepare('SELECT * FROM app_settings WHERE id = 1').get(),
   );
+}
+
+export function getCheckPolicy() {
+  const row = database.prepare('SELECT * FROM check_policy WHERE id = 1').get();
+  return {
+    policy: validateCheckPolicy(parseJson(row?.policy_json, {})),
+    updatedAt: row?.updated_at || null,
+  };
+}
+
+export function updateCheckPolicy(input) {
+  const policy = validateCheckPolicy(input, getCheckPolicy().policy);
+  database
+    .prepare(`INSERT INTO check_policy (id, policy_json, updated_at) VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET policy_json = excluded.policy_json, updated_at = excluded.updated_at`)
+    .run(JSON.stringify(policy), new Date().toISOString());
+  return getCheckPolicy();
+}
+
+// Persistent streaks survive scan retention and restarts. One scan counts once.
+export function recordScanHealth(
+  assetId,
+  scanId,
+  healthy,
+  reason,
+  policy = defaultCheckPolicy,
+) {
+  const asset = getAsset(assetId);
+  const scan = getScan(scanId);
+  if (
+    !asset?.enabled ||
+    scan?.assetId !== assetId ||
+    !['succeeded', 'partial', 'failed'].includes(scan.status)
+  )
+    return [];
+  const previous = database
+    .prepare('SELECT * FROM scan_health_state WHERE asset_id = ?')
+    .get(assetId);
+  if (previous?.last_scan_id === scanId) return [];
+  const now = new Date().toISOString();
+  const count = healthy ? 0 : (previous?.consecutive_failures || 0) + 1;
+  database
+    .prepare(`INSERT INTO scan_health_state (asset_id, consecutive_failures, last_scan_id, last_success_at, updated_at)
+    VALUES (?, ?, ?, ?, ?) ON CONFLICT(asset_id) DO UPDATE SET consecutive_failures = excluded.consecutive_failures,
+    last_scan_id = excluded.last_scan_id, last_success_at = excluded.last_success_at, updated_at = excluded.updated_at`)
+    .run(
+      assetId,
+      count,
+      scanId,
+      healthy ? now : previous?.last_success_at || null,
+      now,
+    );
+  if (!policy.scanHealthEnabled) return [];
+  const ruleKey = 'monitor.scan_unhealthy';
+  const evaluation = healthy
+    ? { ruleKey, status: 'pass' }
+    : count >= policy.scanFailureThreshold
+      ? {
+          ruleKey,
+          status: 'fail',
+          severity: 'medium',
+          title: 'Tarama güvenilirliği kayboldu / Scan coverage degraded',
+          description: `${count} ardışık taramada zorunlu kapsam tamamlanamadı / consecutive scans could not complete required coverage.`,
+          evidence: {
+            consecutiveFailures: count,
+            threshold: policy.scanFailureThreshold,
+            lastSuccessAt: previous?.last_success_at || null,
+            reason: String(reason || 'SCAN_INCOMPLETE').slice(0, 200),
+          },
+        }
+      : { ruleKey, status: 'unknown' };
+  return reconcileIncidents(assetId, scanId, [evaluation]);
 }
 
 export function completeSetup(input) {

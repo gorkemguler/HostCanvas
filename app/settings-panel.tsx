@@ -30,6 +30,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { AdminPanel } from '@/app/admin-panel';
+import { CheckPolicyPanel } from '@/app/check-policy-panel';
 import { apiRequest } from '@/app/client-api';
 import {
   isLocalPanelOrigin,
@@ -630,6 +631,8 @@ function SettingsEditor({
           </Card>
         </div>
       </div>
+
+      <CheckPolicyPanel locale={locale} isAdmin={isAdmin} onSaved={onSaved} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {engineCards.map((item) => (

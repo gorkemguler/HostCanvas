@@ -222,6 +222,7 @@ type Health = {
   bind: string;
   privateTargetsAllowed: boolean;
   publicDnsResolver: string | null;
+  dnssecResolver: string | null;
   subdomainDiscovery: {
     enabled: boolean;
     provider: 'crt.name';
@@ -3436,8 +3437,17 @@ function ChecksView({
                   : say(locale, 'Bulunamadı', 'Not found'),
               ],
               [
+                'DNSSEC (DNS-over-TLS)',
+                health?.dnssecResolver ||
+                  say(
+                    locale,
+                    'Resolver ayarlanmamış',
+                    'Resolver not configured',
+                  ),
+              ],
+              [
                 say(locale, 'Sonraki paket', 'Next pack'),
-                'DNSSEC · dangling CNAME · STARTTLS',
+                'Dangling CNAME · STARTTLS',
               ],
             ].map(([label, value]) => (
               <div

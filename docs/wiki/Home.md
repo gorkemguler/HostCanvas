@@ -10,6 +10,7 @@ Yerelde çalışan domain envanteri, sertifika takibi, güvenlik kontrolleri ve 
 2. [Inventory, scanning and incidents](https://github.com/gorkemguler/HostCanvas/wiki/Inventory-Scanning-and-Incidents) — asset fields, optional subdomain discovery, profiles, scheduling, coverage and lifecycle.
 3. [Creating custom incident types](https://github.com/gorkemguler/HostCanvas/wiki/Custom-Incident-Types) — tested rule example, integration, evidence, multi-finding caveats, lifecycle tests and safe probe development.
 4. [Operations and troubleshooting](https://github.com/gorkemguler/HostCanvas/wiki/Operations-and-Troubleshooting) — roles, webhook delivery, backups, restore, retention, diagnostics and limitations.
+5. [Incident check policies](https://github.com/gorkemguler/HostCanvas/wiki/Check-Policies) — HSTS, scoped cookies, CAA, DNS-over-TLS opt-in and persistent scan-health incidents.
 
 ## Türkçe belgeler
 
@@ -17,6 +18,7 @@ Yerelde çalışan domain envanteri, sertifika takibi, güvenlik kontrolleri ve 
 2. [Envanter, tarama ve incident yönetimi](https://github.com/gorkemguler/HostCanvas/wiki/Envanter-Tarama-ve-Incidentlar) — asset alanları, isteğe bağlı subdomain keşfi, profiller, zamanlama ve yaşam döngüsü.
 3. [Kendi incident türünü oluşturma](https://github.com/gorkemguler/HostCanvas/wiki/Ozel-Incident-Turu-Olusturma) — test edilmiş kural örneği, entegrasyon, kanıt, çoklu bulgu sınırları, testler ve güvenli probe geliştirme.
 4. [Operasyon ve sorun giderme](https://github.com/gorkemguler/HostCanvas/wiki/Operasyon-ve-Sorun-Giderme) — roller, webhook, yedekleme, geri yükleme, saklama politikası ve sınırlamalar.
+5. [Incident kontrol politikaları](https://github.com/gorkemguler/HostCanvas/wiki/Kontrol-Politikalari) — HSTS, kapsamlı cookie ayarları, CAA, DNS-over-TLS onayı ve kalıcı tarama sağlığı incident’ları.
 
 ## Scope and safety / Kapsam ve güvenlik
 

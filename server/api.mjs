@@ -12,6 +12,7 @@ import {
   APP_VERSION,
   MAX_REQUEST_BYTES,
   PUBLIC_DNS_RESOLVER,
+  DNSSEC_RESOLVER,
   SUBDOMAIN_DISCOVERY_ENABLED,
   SUBDOMAIN_DISCOVERY_LIMIT,
   TRUST_PROXY,
@@ -27,6 +28,8 @@ import {
   createUser,
   deleteNotificationChannel,
   getAppSettings,
+  getCheckPolicy,
+  updateCheckPolicy,
   getAsset,
   getDashboard,
   getMaintenanceSettings,
@@ -1048,7 +1051,8 @@ async function route(request, response) {
     path.startsWith('/api/backups');
   if (
     adminOnlyPath ||
-    (path === '/api/settings' && request.method === 'PATCH')
+    (['/api/settings', '/api/check-policy'].includes(path) &&
+      request.method === 'PATCH')
   ) {
     requireRole(effectiveRole, ['admin']);
   }
@@ -1070,6 +1074,31 @@ async function route(request, response) {
       },
       origin,
     );
+    return;
+  }
+
+  if (request.method === 'GET' && path === '/api/check-policy') {
+    sendJson(
+      response,
+      200,
+      {
+        ...getCheckPolicy(),
+        dnssecResolver: DNSSEC_RESOLVER,
+        publicDnsResolver: PUBLIC_DNS_RESOLVER,
+      },
+      origin,
+    );
+    return;
+  }
+  if (request.method === 'PATCH' && path === '/api/check-policy') {
+    const updated = updateCheckPolicy(await readJson(request));
+    audit(request, session, {
+      action: 'check_policy.updated',
+      targetType: 'workspace',
+      summary: 'Kontrol politikası güncellendi / Check policy updated.',
+      metadata: updated.policy,
+    });
+    sendJson(response, 200, updated, origin);
     return;
   }
 
@@ -1502,6 +1531,7 @@ async function route(request, response) {
         bind: `${API_HOST}:${API_PORT}`,
         privateTargetsAllowed: ALLOW_PRIVATE_TARGETS,
         publicDnsResolver: PUBLIC_DNS_RESOLVER,
+        dnssecResolver: DNSSEC_RESOLVER,
         subdomainDiscovery: {
           enabled: SUBDOMAIN_DISCOVERY_ENABLED,
           provider: 'crt.name',
@@ -1781,6 +1811,7 @@ async function route(request, response) {
   }
 
   if (request.method === 'GET' && path === '/api/checks') {
+    const { policy } = getCheckPolicy();
     sendJson(
       response,
       200,
@@ -1790,7 +1821,15 @@ async function route(request, response) {
           enabled:
             rule.requires === 'TLS_SENTINEL_PUBLIC_DNS_RESOLVER'
               ? Boolean(PUBLIC_DNS_RESOLVER)
-              : rule.enabled,
+              : rule.requires === 'TLS_SENTINEL_DNSSEC_RESOLVER'
+                ? Boolean(DNSSEC_RESOLVER)
+                : rule.key === 'http.cookie_secure_missing'
+                  ? policy.cookieSecureRequired
+                  : rule.key === 'http.session_cookie_httponly_missing'
+                    ? policy.sessionCookieNames.length > 0
+                    : rule.key === 'monitor.scan_unhealthy'
+                      ? policy.scanHealthEnabled
+                      : rule.enabled,
         })),
       },
       origin,
@@ -1827,6 +1866,7 @@ export function createApiServer() {
           const validationCodes = new Set([
             'INVALID_USERNAME',
             'INVALID_PASSWORD',
+            'INVALID_CHECK_POLICY',
           ]);
           const known =
             error instanceof ApiError ||

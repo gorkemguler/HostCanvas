@@ -79,7 +79,8 @@ Native başlatıcı/API için `TLS_SENTINEL_*` önceliği: dışarıdan export e
 | `TLS_SENTINEL_TRUST_PROXY` | `false`; Compose sınırlı proxy topolojisinde açar |
 | `TLS_SENTINEL_HTTPS_HOST` | `localhost`; Compose/Caddy hostname veya IPv4 |
 | `TLS_SENTINEL_ALLOW_PRIVATE_TARGETS` | `false`; asset bazında iç ağ onayı da gereklidir |
-| `TLS_SENTINEL_PUBLIC_DNS_RESOLVER` | Boş; public DNS/e-posta kontrolleri resolver olmadan devre dışıdır |
+| `TLS_SENTINEL_PUBLIC_DNS_RESOLVER` | Boş; public DNS ifşası, CAA ve e-posta kontrolleri resolver olmadan devre dışıdır |
+| `TLS_SENTINEL_DNSSEC_RESOLVER` | Boş; açıkça seçilen güvenilir doğrulayıcı DNS-over-TLS hostname’i, TCP 853; sorgulanan asset adları sağlayıcıya gider |
 | `TLS_SENTINEL_CRT_NAME_ENABLED` | `true`; keşif için ayrıca asset formunda onay gerekir |
 | `TLS_SENTINEL_CRT_NAME_LIMIT` | Keşif başına 200 yeni asset; 1–500 arası |
 | `TLS_SENTINEL_MAX_CONCURRENT_SCANS` | 2; 1–8 aralığında |
@@ -90,6 +91,8 @@ Native başlatıcı/API için `TLS_SENTINEL_*` önceliği: dışarıdan export e
 `TLS_SENTINEL_*` ve `tlsentinel.db` adları eski kurulumlarla uyumluluk için korunur. Kesin başvuru: [.env.example](https://github.com/gorkemguler/HostCanvas/blob/main/.env.example) ve [server/config.mjs](https://github.com/gorkemguler/HostCanvas/blob/main/server/config.mjs). `.env`, veritabanı, private key, webhook secret veya gerçek envanter çıktısını Git’e koymayın.
 
 ## Ekibe açmadan önce
+
+Global HSTS/cookie/CAA eşiklerini ve tarama sağlığı incident’larını **Ayarlar → Incident kontrol politikası** bölümünden yapılandırın. DNSSEC ayrı onay gerektirir; public DNS ayarı tek başına yeterli değildir. Resolver seçmeden veya kurum geneli şartları açmadan [Kontrol politikaları](https://github.com/gorkemguler/HostCanvas/wiki/Kontrol-Politikalari) rehberini okuyun.
 
 - İkinci bir yönetilen istemcide HTTPS güvenini ve LAN kimlik doğrulamasını doğrulayın.
 - İkinci etkin admin oluşturun; günlük işlemlerde operator/viewer kullanın.

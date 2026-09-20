@@ -347,6 +347,30 @@ test('kurulum, oturum, CORS ve LAN ayarları API sınırında korunur', async ()
   const loginCookie = login.response.headers.get('set-cookie')?.split(';')[0];
   assert.ok(loginCookie);
 
+  const policyBefore = await call('/api/check-policy', { cookie: loginCookie });
+  assert.equal(policyBefore.response.status, 200);
+  assert.equal(policyBefore.body.policy.scanFailureThreshold, 3);
+  const policySaved = await call('/api/check-policy', {
+    cookie: loginCookie,
+    method: 'PATCH',
+    body: JSON.stringify({
+      scanFailureThreshold: 2,
+      sessionCookieNames: ['session'],
+      caaRequired: true,
+    }),
+  });
+  assert.equal(policySaved.response.status, 200);
+  assert.equal(policySaved.body.policy.scanFailureThreshold, 2);
+  const badPolicy = await call('/api/check-policy', {
+    cookie: loginCookie,
+    method: 'PATCH',
+    body: JSON.stringify({ scanFailureThreshold: '2' }),
+  });
+  assert.equal(badPolicy.response.status, 422);
+  assert.equal(badPolicy.body.error.code, 'INVALID_CHECK_POLICY');
+  const anonymousPolicy = await call('/api/check-policy');
+  assert.equal(anonymousPolicy.response.status, 401);
+
   const viewerCreated = await call('/api/users', {
     method: 'POST',
     cookie: loginCookie,
@@ -398,6 +422,20 @@ test('kurulum, oturum, CORS ve LAN ayarları API sınırında korunur', async ()
   assert.equal(viewerMutation.body.error.code, 'INSUFFICIENT_ROLE');
   const viewerRead = await call('/api/dashboard', { cookie: viewerCookie });
   assert.equal(viewerRead.response.status, 200);
+  assert.equal(
+    (await call('/api/check-policy', { cookie: viewerCookie })).response.status,
+    200,
+  );
+  assert.equal(
+    (
+      await call('/api/check-policy', {
+        cookie: viewerCookie,
+        method: 'PATCH',
+        body: JSON.stringify({ caaRequired: false }),
+      })
+    ).response.status,
+    403,
+  );
 
   const operatorLogin = await call('/api/session', {
     method: 'POST',
@@ -417,6 +455,17 @@ test('kurulum, oturum, CORS ve LAN ayarları API sınırında korunur', async ()
     body: JSON.stringify({ organization: 'Not allowed' }),
   });
   assert.equal(operatorSettings.response.status, 403);
+  assert.equal(
+    (
+      await call('/api/check-policy', {
+        cookie: operatorCookie,
+        method: 'PATCH',
+        body: JSON.stringify({ caaRequired: false }),
+      })
+    ).response.status,
+    403,
+  );
+  assert.equal(db.getCheckPolicy().policy.caaRequired, true);
   const operatorAsset = await call('/api/assets', {
     method: 'POST',
     cookie: operatorCookie,

@@ -54,7 +54,9 @@ To add your own incident type, follow the [custom-rule guide](docs/wiki/Custom-I
 - `pass / fail / unknown` rule model
 - Incidents that open, can be assigned or manually resolved, auto-resolve, and reopen
 - Scheduled scans, persistent job history, and interrupted-job recovery after restart
-- Private-IP disclosure, DNSSEC, DMARC, and SPF checks when a public DNS resolver is configured
+- Private-IP disclosure, CAA, DMARC, and SPF checks with a configured public DNS resolver
+- Opt-in DNSSEC status from an authenticated DNS-over-TLS validating resolver
+- Configurable HSTS/cookie/CAA policies and persistent consecutive-scan-failure incidents
 - Optional `crt.name` subdomain discovery and source relationships when adding an apex domain
 - CSV inventory export
 - First-run wizard for language, organization, access policy, administrator, scan defaults, and the first asset
@@ -177,17 +179,29 @@ This passive discovery covers only names visible in public certificate transpare
 | TLS 1.0 or 1.1 enabled | High | Native TLS |
 | TLS 1.2 unavailable | High | Native TLS |
 | HSTS missing | Medium | Native HTTP |
+| Ineffective HSTS policy | Medium | Native HTTP + workspace policy |
 | Baseline HTTP security headers missing | Medium | Native HTTP |
 | Server header technology disclosure | Low | Native HTTP |
 | Obsolete X-XSS-Protection enabled | Low | Native HTTP |
 | Cookie SameSite missing | Low | Native HTTP |
+| Cookie Secure missing | Low | Native HTTP |
+| Configured session cookie HttpOnly missing | Medium | Native HTTP + explicit cookie names |
 | Private IP exposed in public DNS | High | Configured public resolver |
-| DNSSEC missing | Medium | Configured public resolver |
+| CAA policy mismatch | Low | Configured public resolver + workspace policy |
+| DNSSEC missing | Medium | Opt-in validating DNS-over-TLS resolver |
+| DNSSEC validation failure | High | Resolver-reported DNSSEC error over TLS |
+| Consecutive incomplete scans | Medium | Persistent scan history |
 | DMARC missing or weak | Medium–high | Configured public resolver |
 | SPF missing or invalid | Medium–high | Configured public resolver |
 | testssl.sh JSON findings | Dynamic | testssl.sh |
 
 If a probe times out or its parser fails, the rule returns `unknown`. An `unknown` result never closes an existing incident; only a reliable `pass` for the same rule can auto-resolve it.
+
+### Check policy
+
+Admins can configure **Settings → Incident check policy**. Defaults are a 180-day HSTS minimum, optional `includeSubDomains`, enabled cookie Secure checks, no session-cookie names, optional CAA, and a scan-health incident after three consecutive `failed`/`partial` scans. HttpOnly checks apply only to explicitly listed session-cookie names; cookie values are never retained. A successful scan resets the failure streak and resolves the scan-health incident, not unrelated security findings.
+
+Policy is stored locally and applied when the next scan starts. Turning a check off does not close its existing incidents. DNSSEC now requires the separate `TLS_SENTINEL_DNSSEC_RESOLVER` opt-in; the public DNS setting alone is not sufficient. See the [detailed policy guide](docs/wiki/Check-Policies.md) for exact behavior, privacy, API examples and limitations.
 
 ## Configuration
 
@@ -201,7 +215,8 @@ Native launchers and the API load `TLS_SENTINEL_*` values from `.env.local`/`.en
 | `TLS_SENTINEL_WEB_HOST` | `0.0.0.0` | Web-console bind address |
 | `TLS_SENTINEL_UI_ORIGINS` | localhost origins | Additional console origins that are always trusted |
 | `TLS_SENTINEL_ALLOW_PRIVATE_TARGETS` | `false` | Globally allows internal-network targets |
-| `TLS_SENTINEL_PUBLIC_DNS_RESOLVER` | disabled | Enables public DNS, DNSSEC, DMARC, and SPF rules |
+| `TLS_SENTINEL_PUBLIC_DNS_RESOLVER` | disabled | Enables public DNS disclosure, CAA, DMARC, and SPF rules |
+| `TLS_SENTINEL_DNSSEC_RESOLVER` | disabled | Trusted validating DNS-over-TLS hostname; TCP 853; sends queried names to that provider |
 | `TLS_SENTINEL_CRT_NAME_ENABLED` | `true` | Allows optional crt.name discovery when adding an asset |
 | `TLS_SENTINEL_CRT_NAME_LIMIT` | `200` | Maximum assets created in one discovery (`1–500`) |
 | `TLS_SENTINEL_TESTSSL_PATH` | `testssl.sh` | Scanner executable path |
