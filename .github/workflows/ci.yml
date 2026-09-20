@@ -20,7 +20,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24.9.0
+          node-version-file: .node-version
           cache: npm
 
       - name: Install dependencies
@@ -35,5 +35,20 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Native end-to-end scan
+        run: npm run test:e2e
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Validate Compose
+        run: docker compose config --quiet
+
+      - name: Validate Caddy
+        run: docker run --rm -e TLS_SENTINEL_HTTPS_HOST=localhost -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
       - name: Build
         run: npm run build
+
+      - name: Production web smoke test
+        run: npm run test:web

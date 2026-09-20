@@ -286,6 +286,7 @@ function TeamTab({
                   </TableCell>
                   <TableCell>
                     <NativeSelect
+                      aria-label={`${user.username} ${word(locale, 'rolü', 'role')}`}
                       className="w-32"
                       value={user.role}
                       disabled={updateMutation.isPending}
@@ -310,6 +311,7 @@ function TeamTab({
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <Switch
+                        aria-label={`${user.username} ${word(locale, 'hesap durumu', 'account status')}`}
                         checked={user.enabled}
                         disabled={updateMutation.isPending}
                         onCheckedChange={(enabled) =>
@@ -573,6 +575,7 @@ function NotificationsTab({
                   </TableCell>
                   <TableCell>
                     <NativeSelect
+                      aria-label={`${channel.name} ${word(locale, 'önem eşiği', 'severity threshold')}`}
                       className="w-32"
                       value={channel.minSeverity}
                       onChange={(event) =>
@@ -597,6 +600,7 @@ function NotificationsTab({
                   </TableCell>
                   <TableCell>
                     <Switch
+                      aria-label={`${channel.name} ${word(locale, 'bildirim durumu', 'notification status')}`}
                       checked={channel.enabled}
                       onCheckedChange={(enabled) =>
                         updateMutation.mutate({
@@ -849,10 +853,11 @@ function MaintenanceTab({
           {values ? (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <div className="space-y-2">
-                <Label>
+                <Label htmlFor="maintenance-scan-retention">
                   {word(locale, 'Tarama geçmişi (gün)', 'Scan history (days)')}
                 </Label>
                 <Input
+                  id="maintenance-scan-retention"
                   type="number"
                   min="7"
                   max="3650"
@@ -863,7 +868,7 @@ function MaintenanceTab({
                 />
               </div>
               <div className="space-y-2">
-                <Label>
+                <Label htmlFor="maintenance-artifact-retention">
                   {word(
                     locale,
                     'Artifact saklama (gün)',
@@ -871,6 +876,7 @@ function MaintenanceTab({
                   )}
                 </Label>
                 <Input
+                  id="maintenance-artifact-retention"
                   type="number"
                   min="1"
                   max="3650"
@@ -881,10 +887,11 @@ function MaintenanceTab({
                 />
               </div>
               <div className="space-y-2">
-                <Label>
+                <Label htmlFor="maintenance-backup-count">
                   {word(locale, 'Saklanan yedek', 'Backups retained')}
                 </Label>
                 <Input
+                  id="maintenance-backup-count"
                   type="number"
                   min="1"
                   max="100"
@@ -895,7 +902,7 @@ function MaintenanceTab({
                 />
               </div>
               <div className="space-y-2">
-                <Label>
+                <Label htmlFor="maintenance-backup-interval">
                   {word(
                     locale,
                     'Yedekleme aralığı (saat)',
@@ -903,6 +910,7 @@ function MaintenanceTab({
                   )}
                 </Label>
                 <Input
+                  id="maintenance-backup-interval"
                   type="number"
                   min="1"
                   max="168"

@@ -1,17 +1,24 @@
 import { spawn } from 'node:child_process';
+import {
+  environmentForWeb,
+  loadApplicationEnvironment,
+} from './environment.mjs';
 
-const command = process.platform === 'win32' ? 'wrangler.cmd' : 'wrangler';
+process.env.NODE_ENV ||= 'production';
+loadApplicationEnvironment();
+
+const command = process.platform === 'win32' ? 'vinext.cmd' : 'vinext';
 const host = process.env.TLS_SENTINEL_WEB_HOST || '0.0.0.0';
 const port = process.env.TLS_SENTINEL_WEB_PORT || '3000';
 const environment = {
-  ...process.env,
+  ...environmentForWeb(),
   WRANGLER_SEND_METRICS: process.env.WRANGLER_SEND_METRICS || 'false',
 };
-const child = spawn(
-  command,
-  ['dev', '--config', 'dist/server/wrangler.json', '--ip', host, '--port', port],
-  { stdio: 'inherit', env: environment, shell: false },
-);
+const child = spawn(command, ['start', '--hostname', host, '--port', port], {
+  stdio: 'inherit',
+  env: environment,
+  shell: false,
+});
 
 child.once('error', (error) => {
   console.error('Web sunucusu başlatılamadı:', error.message);

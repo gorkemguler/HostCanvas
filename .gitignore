@@ -46,3 +46,5 @@ next-env.d.ts
 /data/artifacts/
 /data/backups/
 /data/.secret-key
+/data/.state-lock.db
+/data/.state-lock.db-journal

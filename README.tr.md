@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://github.com/gorkemguler/HostCanvas/actions/workflows/ci.yml"><img src="https://github.com/gorkemguler/HostCanvas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/version-0.3.0-1f883d" alt="Sürüm 0.3.0">
-  <img src="https://img.shields.io/badge/Node.js-%E2%89%A524.9-339933?logo=nodedotjs&logoColor=white" alt="Node.js 24.9 veya üzeri">
+  <img src="https://img.shields.io/badge/Node.js-%E2%89%A524.21-339933?logo=nodedotjs&logoColor=white" alt="Node.js 24.21 veya üzeri">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/gorkemguler/HostCanvas" alt="MIT lisansı"></a>
   <img src="https://img.shields.io/badge/mimari-local--first-0f766e" alt="Local-first mimari">
 </p>
@@ -21,6 +21,12 @@
 HostCanvas, ekiplerin yönettikleri domain ve hostname envanterini; sertifika süreleri, TLS/DNS/HTTP güvenlik kontrolleri ve tekrar eden incident’larla birlikte tek bir yerel çalışma alanında izlemesini sağlayan local-first bir güvenlik uygulamasıdır. Tam kapsamlı bir EASM platformu olmayı iddia etmez; domain envanteri ve düzenli güvenlik görünürlüğüne odaklanır.
 
 Uygulama telemetry göndermez; envanteri, yönetici hesabını, oturum özetlerini ve tarama geçmişini yerel SQLite veritabanında tutar. Sunucular LAN bağlantısını kabul edecek şekilde dinler ancak uygulama politikası ilk kurulumda LAN erişimini kapalı tutar.
+
+## Belgeler
+
+Kurulum, LAN güvenliği, tarama akışı, bildirim ve kurtarma için [Türkçe/İngilizce Wiki](https://github.com/gorkemguler/HostCanvas/wiki) veya [depodaki sürümlenen kopyasını](docs/wiki-index.md) okuyun.
+
+Kendi incident türünüzü eklemek için [ayrıntılı özel kural rehberini](docs/wiki/Ozel-Incident-Turu-Olusturma.md) ve test edilen örneği izleyin. Kurallar bugün kodla eklenir; görsel template editörü henüz yoktur.
 
 ## Ekran görüntüleri
 
@@ -65,31 +71,33 @@ Uygulama telemetry göndermez; envanteri, yönetici hesabını, oturum özetleri
 
 Gereksinimler:
 
-- Node.js `24.9+`
+- Node.js `24.21+` (CI/Docker sürümü `.node-version` dosyasında sabittir)
 - npm
 - Derin tarama için opsiyonel `testssl.sh` 3.2.x
 
 ```bash
-npm install
+npm ci
 cp .env.example .env.local
 npm run dev
 ```
 
 Panel: [http://localhost:3000](http://localhost:3000)
 
-Yerel API: [http://localhost:8787/api/health](http://localhost:8787/api/health)
+Canlılık kontrolü: [http://localhost:8787/api/health/live](http://localhost:8787/api/health/live). Ayrıntılı `/api/health` için çalışma alanına erişim gerekir.
 
-`npm run dev`, web panelini ve tarama motorunu birlikte başlatır. İlk açılışta kurulum sihirbazı gösterilir. Dil ve erişim ayarlarını seçer, yönetici hesabını oluşturur ve isterseniz ilk varlığı eklersiniz. Hedef eklerken tarama yetkiniz olduğunu onaylamanız gerekir.
+`npm run dev`, web panelini ve tarama motorunu birlikte başlatır. İlk açılışta dil ve erişim ayarlarını seçer, sunucu konsolundaki kurulum kodunu girer, yönetici hesabını oluşturur ve isterseniz ilk varlığı eklersiniz. Kod localhost için de zorunludur ve 15 dakika geçerlidir; süresi dolduğunda sihirbazı yenileyip konsoldaki yeni kodu kullanın. Hedef eklerken tarama yetkiniz olduğunu onaylamanız gerekir.
 
 ### Docker Compose
 
 Docker yüklüyse testssl.sh 3.2.4 ve Caddy HTTPS reverse proxy ile sertleştirilmiş LAN kurulumu:
 
 ```bash
+cp .env.example .env
+# .env içinde TLS_SENTINEL_HTTPS_HOST değerini sunucunun hostname veya IPv4 adresi yapın.
 docker compose up --build
 ```
 
-Panel LAN üzerinde `https://SUNUCU-IP:3443` adresindedir. İlk kurulumda **LAN erişimi** seçeneğini açın; uzak kurulum için istenen tek kullanımlık kod `docker compose logs app` çıktısında görünür. Caddy ilk çalıştırmada yerel bir CA üretir. Tarayıcı uyarısını kaldırmak için CA sertifikasını dışarı alın ve yalnızca yönettiğiniz istemcilere güvenilir kök olarak kurun:
+Paneli yapılandırdığınız adresle `https://<TLS_SENTINEL_HTTPS_HOST>:3443` üzerinden açın. Varsayılan `localhost` değeridir; uzak kurulum öncesinde protokol, port ve yol içermeyen bir LAN hostname/IPv4 adresi yazın. İlk kurulumda **LAN erişimi** seçeneğini açın ve `docker compose logs app` çıktısındaki kodu girin. Caddy ilk çalıştırmada yerel bir CA üretir. CA sertifikasını dışarı alın ve yalnızca yönettiğiniz istemcilere güvenilir kök olarak kurun:
 
 ```bash
 docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt ./host-canvas-local-ca.crt
@@ -109,7 +117,7 @@ Hostname + port doğrulama
 DNS resolve → tüm IP’leri sınıflandır → izinli IP’yi sabitle
       │
       ├── Native TLS / HTTP probe
-      └── testssl.sh adapter (shell yok, sabit argv, timeout, çıktı limiti)
+      └── testssl.sh adapter (sabit argv, süre ve kaynak limitleri)
               │
               ▼
        Normalize gözlemler
@@ -140,12 +148,12 @@ Sık çalıştırılmak üzere tasarlanmıştır. Varsayılan aralık 12 saattir
 
 Cipher/protokol enumerasyonu ve bilinen TLS zafiyet kontrolleri için `testssl.sh` adapter’ını kullanır. Adapter:
 
-- subprocess’i `shell: false` ile başlatır,
+- sabit argümanları `shell: false` ile geçirir; POSIX üzerinde sabit bir shell sarmalayıcısı dosya limitini ayarlayıp `exec` çalıştırır, hedef girdisi shell metnine eklenmez,
 - kullanıcıdan flag veya output path kabul etmez,
 - önceden doğrulanmış IP’yi `--ip` ile sabitler ve `--nodns none` kullanır,
 - `--ids-friendly` profilini etkinleştirir,
 - `--phone-out` kullanmaz,
-- süre ve stdout/stderr boyut limiti uygular,
+- süre, stdout/stderr, JSON artifact ve POSIX dosya boyutu limitlerini uygular; alt sürece uygulama secret’larını aktarmayan sınırlı bir ortam verir,
 - incident’ı exit code’dan değil JSON bulgularından üretir.
 
 `testssl.sh` sonucu SSL Labs derecesi değildir. HostCanvas kendi basit operasyonel skorunu gösterir. Testssl.sh [GPLv2](https://github.com/testssl/testssl.sh/blob/3.2/LICENSE) lisanslıdır; Docker imajı sabitlenmiş kaynak sürümünü `/opt/testssl` altında lisansıyla birlikte taşır.
@@ -154,7 +162,7 @@ Cipher/protokol enumerasyonu ve bilinen TLS zafiyet kontrolleri için `testssl.s
 
 Asset ekleme ekranındaki `crt.name ile subdomain keşfi` seçeneği kök domaini `https://crt.name/v1/search` API’sine gönderir. HostCanvas dönen kayıtları IDNA/hostname kurallarıyla doğrular, wildcard ve farklı domain sonuçlarını reddeder, tekrarları ayıklar ve varsayılan olarak en fazla 200 subdomaini yeni asset olarak kaydeder. Keşfedilen asset’lar kök asset ile ilişkilendirilir, `crt.name` kaynağıyla etiketlenir ve anlık bir tarama fırtınası oluşturmamak için ilk kontrolleri kademeli planlanır.
 
-Bu pasif keşif yalnızca public sertifika şeffaflığı ve `crt.name` indeksinde görülen isimleri kapsar; bir hostname’in halen canlı veya kuruma ait olduğunu tek başına kanıtlamaz. Ücretsiz servis IP başına günlük 100 istekle sınırlıdır. Kök domain dış servise gönderildiği için seçenek kullanıcıya açıkça gösterilir ve istenirse kapatılabilir.
+Bu pasif keşif yalnızca public sertifika şeffaflığı ve `crt.name` indeksinde görülen isimleri kapsar; bir hostname’in halen canlı veya kuruma ait olduğunu tek başına kanıtlamaz. Sağlayıcının kotaları geçerlidir. Kök domain dış servise gönderildiği için keşif varsayılan olarak seçili değildir; her varlık için açıkça etkinleştirilir.
 
 ## Alarm kataloğu
 
@@ -202,7 +210,9 @@ Tüm seçenekler ve güvenli varsayılanlar [.env.example](.env.example) içinde
 | `TLS_SENTINEL_SECRET_KEY`            | otomatik `/data/.secret-key` | Webhook secret şifreleme anahtarı; harici secret manager ile verilebilir   |
 | `TLS_SENTINEL_TRUST_PROXY`           | `false`                      | Yalnızca güvenilen reverse proxy arkasında gerçek istemci IP’sini kullanır |
 
-LAN erişimi için localhost’tan **Ayarlar → LAN erişimi** seçeneğini açın ve tarayıcıda kullanacağınız gerçek adresi (ör. `http://192.168.1.20:3000`) izinli panel origin’lerine ekleyin. LAN açıkken kimlik doğrulama kapatılamaz. İlk kurulum uzaktan yapılıyorsa sunucu konsolunda gösterilen tek kullanımlık kurulum kodu da istenir.
+Yerel başlatıcılar ve API, `.env.local`/`.env` ile moda özel dosyalardaki `TLS_SENTINEL_*` ayarlarını okur; doğrudan ortam değişkenleri önceliklidir. Docker Compose varsayılan olarak `.env` okur; diğer dosya için `docker compose --env-file .env.local ...` kullanın. API secret’ları web ve tarayıcı motoru alt süreçlerinden ayıklanır.
+
+LAN erişimi için gerçek HTTPS adresini (ör. `https://192.168.1.20:3443`) **Ayarlar → LAN erişimi** bölümüne ekleyin. Uzaktan erişimde HTTPS ve kimlik doğrulama zorunludur. Özel reverse proxy kullanıyorsanız ilk kurulumdan önce hostname’in Host doğrulamasından geçmesi için `TLS_SENTINEL_UI_ORIGINS` tanımlayın. `TLS_SENTINEL_TRUST_PROXY` yalnızca doğrudan API erişimi güvenilir istemci/proxy’lerle sınırlandırılmışsa açılmalıdır; proxy `X-Forwarded-For` ve `X-Forwarded-Proto` başlıklarını kendisi yazmalıdır.
 
 HostCanvas adıyla yeniden markalanan bu sürüm, mevcut kurulumların veri dizinlerini ve otomasyonlarını bozmamak için `TLS_SENTINEL_*` ortam değişkenlerini, `tlsentinel.db` veritabanı adını ve eski yedek dosyası biçimini geriye dönük uyumluluk amacıyla korur.
 
@@ -265,6 +275,8 @@ Yeni alarm eklemek için [docs/adding-a-check.md](docs/adding-a-check.md) belges
 
 ## Bilinen sınırlar ve sonraki rule-pack’ler
 
+- Webhook teslimatı deneme başına DNS dahil 8 saniye ve geçici hatalarda en fazla 3 denemeyle sınırlıdır; taramalar teslimatı beklemez. Teslimat geçmişi kalıcıdır, bekleyen işler bellektedir: yeniden başlatmada otomatik tekrar gönderim yoktur. Timeout sonrası yinelenen olayları alıcı tarafında ayıklayın.
+- POSIX üzerinde mevcut ve yeni veri dizinleri `0700`, veritabanı/yedek/secret dosyaları `0600` yapılır. Veri dizini kilidi, uygulama/yedekleme açıkken geri yüklemeyi ve aynı dizinde ikinci API sürecini engeller.
 - Native legacy-protokol sonucu, yerel Node/OpenSSL build’inin destekleyebildiği handshake’lerle sınırlıdır; derin doğrulama için testssl.sh kullanılmalıdır.
 - Public DNS private-IP kontrolü split-horizon yanlış pozitiflerini önlemek için sistem resolver’ını kullanmaz ve varsayılan olarak kapalıdır.
 - `crt.name` keşfi pasiftir ve dış indeks sonuçlarına bağlıdır; canlılık veya sahiplik doğrulaması değildir. Büyük sonuç kümeleri güvenli üst sınırla kesilir.

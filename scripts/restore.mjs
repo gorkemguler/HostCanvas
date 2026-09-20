@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, rename, stat, unlink } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, rename, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { backup, DatabaseSync } from 'node:sqlite';
 
-import { BACKUP_DIRECTORY, DATABASE_PATH } from '../server/config.mjs';
+import {
+  BACKUP_DIRECTORY,
+  DATA_DIRECTORY,
+  DATABASE_PATH,
+} from '../server/config.mjs';
+import { acquireStateLock, releaseStateLock } from '../server/state-lock.mjs';
+
+process.umask(0o077);
 
 const args = process.argv.slice(2);
 const sourceArgument = args.find((argument) => argument !== '--confirm');
@@ -48,14 +55,35 @@ function verifyDatabase(path) {
   }
 }
 
+async function ensurePrivateDirectory(path) {
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  await chmod(path, 0o700);
+}
+
+async function unlinkIfPresent(path) {
+  await unlink(path).catch((error) => {
+    if (error.code !== 'ENOENT') throw error;
+  });
+}
+
+async function removeSidecars(path) {
+  await Promise.all([
+    unlinkIfPresent(`${path}-wal`),
+    unlinkIfPresent(`${path}-shm`),
+  ]);
+}
+
 let temporary = null;
+let restoreLock = null;
 try {
+  await ensurePrivateDirectory(DATA_DIRECTORY);
+  await ensurePrivateDirectory(BACKUP_DIRECTORY);
+  restoreLock = acquireStateLock(DATA_DIRECTORY, 'restore');
+
   const sourceDetails = await stat(source);
   if (!sourceDetails.isFile()) throw new Error('Kaynak bir dosya değil.');
   verifyDatabase(source);
 
-  await mkdir(dirname(target), { recursive: true });
-  await mkdir(BACKUP_DIRECTORY, { recursive: true });
   const targetExists = await stat(target)
     .then((details) => details.isFile())
     .catch(() => false);
@@ -64,6 +92,10 @@ try {
     try {
       active = new DatabaseSync(target);
       active.exec('PRAGMA busy_timeout = 250');
+      const checkpoint = active
+        .prepare('PRAGMA wal_checkpoint(TRUNCATE)')
+        .get();
+      if (checkpoint.busy) throw new Error('WAL checkpoint tamamlanamadı.');
       active.exec('BEGIN EXCLUSIVE');
       active.exec('ROLLBACK');
     } catch (error) {
@@ -83,19 +115,27 @@ try {
     BACKUP_DIRECTORY,
     `pre-restore-${stamp}-${basename(target)}`,
   );
-  if (targetExists) await copyFile(target, emergency);
+  if (targetExists) {
+    await copyFile(target, emergency);
+    await chmod(emergency, 0o600);
+  }
 
   temporary = resolve(dirname(target), `.restore-${randomUUID()}.db`);
-  await copyFile(source, temporary);
+  // SQLite's backup API also captures committed data in a source WAL file.
+  // A raw copy of the .db alone could silently restore an older snapshot.
+  const sourceDatabase = new DatabaseSync(source, { readOnly: true });
+  try {
+    await backup(sourceDatabase, temporary);
+  } finally {
+    sourceDatabase.close();
+  }
+  await chmod(temporary, 0o600);
   verifyDatabase(temporary);
-  await unlink(`${target}-wal`).catch((error) => {
-    if (error.code !== 'ENOENT') throw error;
-  });
-  await unlink(`${target}-shm`).catch((error) => {
-    if (error.code !== 'ENOENT') throw error;
-  });
+  await removeSidecars(temporary);
+  await removeSidecars(target);
   await rename(temporary, target);
   temporary = null;
+  await chmod(target, 0o600);
   console.log(`Geri yükleme tamamlandı: ${target}`);
   if (targetExists)
     console.log(`Önceki veritabanının acil durum kopyası: ${emergency}`);
@@ -103,5 +143,9 @@ try {
   console.error(`Geri yükleme başarısız: ${error.message}`);
   process.exitCode = 1;
 } finally {
-  if (temporary) await unlink(temporary).catch(() => {});
+  if (temporary) {
+    await unlinkIfPresent(temporary).catch(() => {});
+    await removeSidecars(temporary).catch(() => {});
+  }
+  releaseStateLock(restoreLock);
 }

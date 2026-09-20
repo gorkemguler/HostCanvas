@@ -4,7 +4,9 @@ import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-process.env.TLS_SENTINEL_DATA_DIR = mkdtempSync(join(tmpdir(), 'tls-sentinel-db-'));
+process.env.TLS_SENTINEL_DATA_DIR = mkdtempSync(
+  join(tmpdir(), 'tls-sentinel-db-'),
+);
 
 const db = await import('../server/db.mjs');
 after(() => db.closeDatabase());
@@ -125,9 +127,9 @@ test('varlık arşivlenince aktif incidentlar geçmişi korunarak kapanır', () 
   db.archiveAsset(asset.id);
   assert.equal(db.getDashboard().summary.openIncidents, before - 1);
   assert.equal(
-    db.listIncidents({ status: 'resolved', limit: 200 }).some(
-      (incident) => incident.assetId === asset.id,
-    ),
+    db
+      .listIncidents({ status: 'resolved', limit: 200 })
+      .some((incident) => incident.assetId === asset.id),
     true,
   );
 });

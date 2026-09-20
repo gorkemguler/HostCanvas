@@ -75,6 +75,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { SettingsPanel } from '@/app/settings-panel';
 import { apiEndpoint, apiRequest } from '@/app/client-api';
+import { clearWorkspaceCache, isSecureLanOrigin } from '@/app/client-security';
 import { cn } from '@/lib/utils';
 
 type View =
@@ -614,14 +615,9 @@ function SetupWizard({
   const browserOrigin =
     typeof window === 'undefined' ? '' : window.location.origin;
   const suggestedLanOrigin =
-    (browserOrigin &&
-    !browserOrigin.includes('localhost') &&
-    !browserOrigin.includes('127.0.0.1')
+    (browserOrigin && isSecureLanOrigin(browserOrigin)
       ? browserOrigin
-      : bootstrap.suggestedOrigins.find(
-          (origin) =>
-            !origin.includes('localhost') && !origin.includes('127.0.0.1'),
-        )) || '';
+      : bootstrap.suggestedOrigins.find(isSecureLanOrigin)) || '';
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<SetupForm>({
     language: bootstrap.language || 'tr',
@@ -645,10 +641,13 @@ function SetupWizard({
     label: '',
     owner: '',
     environment: 'production',
-    discoverSubdomains: true,
+    discoverSubdomains: false,
     authorized: false,
   });
   const locale = form.language;
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
   const change = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
   const mutation = useMutation({
@@ -698,7 +697,7 @@ function SetupWizard({
   ];
   const canContinue =
     (step === 0 && form.organization.trim().length > 0) ||
-    (step === 1 && (!form.lanEnabled || form.lanOrigin.trim().length > 0)) ||
+    (step === 1 && (!form.lanEnabled || isSecureLanOrigin(form.lanOrigin))) ||
     (step === 2 &&
       form.username.length >= 3 &&
       form.password.length >= 12 &&
@@ -834,6 +833,11 @@ function SetupWizard({
                     </p>
                   </div>
                   <Switch
+                    aria-label={say(
+                      locale,
+                      'Giriş koruması',
+                      'Sign-in protection',
+                    )}
                     checked={form.authEnabled || form.lanEnabled}
                     onCheckedChange={(checked) =>
                       change('authEnabled', checked)
@@ -852,12 +856,13 @@ function SetupWizard({
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
                       {say(
                         locale,
-                        'Aynı ağdaki yetkili ekip üyeleri giriş ekranına ulaşabilir.',
-                        'Authorized teammates on the same network can reach the sign-in screen.',
+                        'Ekip üyeleri HTTPS üzerinden, kimlik doğrulayarak erişir.',
+                        'Teammates connect over HTTPS and must sign in.',
                       )}
                     </p>
                   </div>
                   <Switch
+                    aria-label={say(locale, 'LAN erişimi', 'LAN access')}
                     checked={form.lanEnabled}
                     onCheckedChange={(checked) =>
                       setForm((current) => ({
@@ -893,8 +898,8 @@ function SetupWizard({
                     <p className="text-[11px] leading-5 text-muted-foreground">
                       {say(
                         locale,
-                        'Tarayıcıda kullanacağınız gerçek IP veya hostname’i yazın.',
-                        'Enter the actual IP or hostname you will use in the browser.',
+                        'HTTPS adresi gereklidir; örneğin https://192.168.1.20:3443. Caddy adresi ve sertifikası bu adresle eşleşmelidir.',
+                        'An HTTPS address is required, such as https://192.168.1.20:3443. The Caddy address and certificate must match it.',
                       )}
                     </p>
                   </div>
@@ -980,7 +985,10 @@ function SetupWizard({
                       id="setup-code"
                       value={form.setupCode}
                       onChange={(event) =>
-                        change('setupCode', event.target.value.toUpperCase())
+                        change(
+                          'setupCode',
+                          event.target.value.trim().toUpperCase(),
+                        )
                       }
                       className="font-mono uppercase"
                       placeholder="A1B2C3D4E5F6"
@@ -988,18 +996,19 @@ function SetupWizard({
                     <p className="text-[10px] text-muted-foreground">
                       {say(
                         locale,
-                        'Kod HostCanvas sunucu konsolunda gösterilir.',
-                        'The code is shown in the HostCanvas server console.',
+                        'Kod sunucu konsolunda gösterilir ve 15 dakika geçerlidir. Süresi dolarsa sayfayı yenileyip konsoldaki yeni kodu kullanın.',
+                        'The server console shows a code valid for 15 minutes. If it expires, reload this page and use the new code in the console.',
                       )}
                     </p>
                   </div>
                 ) : null}
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="space-y-2">
-                    <Label>
+                    <Label htmlFor="setup-default-profile">
                       {say(locale, 'Varsayılan profil', 'Default profile')}
                     </Label>
                     <NativeSelect
+                      id="setup-default-profile"
                       value={form.defaultScanProfile}
                       onChange={(event) =>
                         change(
@@ -1017,10 +1026,11 @@ function SetupWizard({
                     </NativeSelect>
                   </div>
                   <div className="space-y-2">
-                    <Label>
+                    <Label htmlFor="setup-expiry-threshold">
                       {say(locale, 'Bitiş eşiği', 'Expiry threshold')}
                     </Label>
                     <Input
+                      id="setup-expiry-threshold"
                       type="number"
                       min="1"
                       max="365"
@@ -1031,10 +1041,11 @@ function SetupWizard({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>
+                    <Label htmlFor="setup-scan-interval">
                       {say(locale, 'Tarama aralığı', 'Scan interval')}
                     </Label>
                     <NativeSelect
+                      id="setup-scan-interval"
                       value={form.defaultScanIntervalMinutes}
                       onChange={(event) =>
                         change('defaultScanIntervalMinutes', event.target.value)
@@ -1311,6 +1322,7 @@ function LoginScreen({
   bootstrap: BootstrapState;
   onAuthenticated: () => void;
 }) {
+  const queryClient = useQueryClient();
   const locale = bootstrap.language;
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
@@ -1320,7 +1332,10 @@ function LoginScreen({
         method: 'POST',
         body: JSON.stringify({ username, password }),
       }),
-    onSuccess: onAuthenticated,
+    onSuccess: () => {
+      clearWorkspaceCache(queryClient);
+      onAuthenticated();
+    },
   });
   return (
     <AuthShell>
@@ -1472,7 +1487,7 @@ function initialAssetForm(defaults: AssetDefaults): AddAssetForm {
     expiryWarningDays: String(defaults.defaultExpiryWarningDays),
     scanIntervalMinutes: String(defaults.defaultScanIntervalMinutes),
     allowPrivate: false,
-    discoverSubdomains: true,
+    discoverSubdomains: false,
     authorized: false,
   };
 }
@@ -3496,6 +3511,24 @@ function TlsSentinelApp() {
 
   useEffect(() => {
     const requireAuthentication = () => {
+      clearWorkspaceCache(queryClient);
+      setSelectedIncident(null);
+      setSelectedScan(null);
+      setSelectedAsset(null);
+      setAddOpen(false);
+      setNotice(null);
+      queryClient.setQueryData<BootstrapState>(['bootstrap'], (current) =>
+        current?.setupRequired
+          ? current
+          : current
+            ? {
+                ...current,
+                authenticated: false,
+                authenticationRequired: true,
+                user: null,
+              }
+            : current,
+      );
       void queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
     };
     window.addEventListener(
@@ -3625,13 +3658,17 @@ function TlsSentinelApp() {
   const logoutMutation = useMutation({
     mutationFn: () =>
       api<{ ok: boolean }>('/api/session', { method: 'DELETE' }),
-    onSettled: async () => {
-      queryClient.removeQueries({ queryKey: ['dashboard'] });
-      queryClient.removeQueries({ queryKey: ['health'] });
-      queryClient.removeQueries({ queryKey: ['checks'] });
-      queryClient.removeQueries({ queryKey: ['settings'] });
+    onSuccess: async () => {
+      clearWorkspaceCache(queryClient);
+      setSelectedIncident(null);
+      setSelectedScan(null);
+      setSelectedAsset(null);
+      setAddOpen(false);
+      setNotice(null);
+      setView('dashboard');
       await queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
     },
+    onError: (error) => setNotice(error.message),
   });
 
   const data = dashboardQuery.data;
@@ -4064,7 +4101,14 @@ export default function Home() {
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: { retry: 1, refetchOnWindowFocus: true },
+          queries: {
+            retry: (failures, error) =>
+              failures < 1 &&
+              ![401, 403].includes(
+                Number((error as Error & { status?: number }).status),
+              ),
+            refetchOnWindowFocus: true,
+          },
           mutations: { retry: 0 },
         },
       }),

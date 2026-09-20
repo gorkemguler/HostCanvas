@@ -24,10 +24,15 @@ import {
 } from './probes/testssl.mjs';
 import { probeHttpHeaders, probeTls } from './probes/tls.mjs';
 import { evaluateObservations, gradeEvaluations } from './rules/index.mjs';
-import { dispatchIncidentNotifications } from './notifications.mjs';
+import {
+  dispatchIncidentNotifications,
+  startNotificationDeliveries,
+  stopNotificationDeliveries,
+} from './notifications.mjs';
 import { resolveAndValidateTarget } from './security/targets.mjs';
 
 const running = new Map();
+const notificationTasks = new Set();
 let schedulerTimer;
 let stopping = false;
 
@@ -36,6 +41,19 @@ function safeError(error) {
     code: error.code || 'SCAN_FAILED',
     message: String(error.message || 'Tarama başarısız oldu.').slice(0, 1_000),
   };
+}
+
+function dispatchNotifications(events) {
+  if (!events?.length) return;
+  const task = dispatchIncidentNotifications(events)
+    .catch((error) => {
+      console.error(
+        '[notifications]',
+        String(error.message || error).slice(0, 500),
+      );
+    })
+    .finally(() => notificationTasks.delete(task));
+  notificationTasks.add(task);
 }
 
 async function executeScan(scan) {
@@ -97,8 +115,18 @@ async function executeScan(scan) {
     let scanStatus = 'succeeded';
     let testsslVersion = null;
     if (scan.profile === 'deep') {
-      observations.testssl = await runTestssl(target, scan.id);
-      testsslVersion = observations.testssl.engineVersion;
+      try {
+        observations.testssl = await runTestssl(target, scan.id);
+        testsslVersion = observations.testssl.engineVersion;
+      } catch (error) {
+        // Native findings remain useful when the optional deep engine fails.
+        // Incomplete deep results must not resolve prior testssl incidents.
+        observations.testssl = {
+          status: 'failed',
+          error: safeError(error),
+          findings: [],
+        };
+      }
       if (observations.testssl.status !== 'complete') scanStatus = 'partial';
     }
 
@@ -135,14 +163,7 @@ async function executeScan(scan) {
             : [],
       },
     );
-    try {
-      await dispatchIncidentNotifications(notificationEvents);
-    } catch (error) {
-      console.error(
-        '[notifications]',
-        String(error.message || error).slice(0, 500),
-      );
-    }
+    dispatchNotifications(notificationEvents);
   } catch (error) {
     const safe = safeError(error);
     finishScan(scan.id, {
@@ -223,7 +244,9 @@ export async function scannerHealth() {
 }
 
 export function startScanner() {
+  if (schedulerTimer) clearInterval(schedulerTimer);
   stopping = false;
+  startNotificationDeliveries();
   recoverInterruptedScans();
   scheduleDueAssets();
   pumpQueue();
@@ -234,6 +257,9 @@ export function startScanner() {
 export async function stopScanner() {
   stopping = true;
   if (schedulerTimer) clearInterval(schedulerTimer);
+  schedulerTimer = undefined;
   stopTestsslProcesses();
+  stopNotificationDeliveries();
   await Promise.allSettled(running.values());
+  await Promise.allSettled(notificationTasks.values());
 }

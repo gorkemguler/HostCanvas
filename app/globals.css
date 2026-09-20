@@ -127,10 +127,24 @@
   body {
     @apply bg-background text-foreground;
     background-image:
-      radial-gradient(circle at 18% -12%, color-mix(in oklch, var(--primary) 10%, transparent), transparent 34rem),
-      linear-gradient(color-mix(in oklch, var(--foreground) 2%, transparent) 1px, transparent 1px),
-      linear-gradient(90deg, color-mix(in oklch, var(--foreground) 2%, transparent) 1px, transparent 1px);
-    background-size: auto, 34px 34px, 34px 34px;
+      radial-gradient(
+        circle at 18% -12%,
+        color-mix(in oklch, var(--primary) 10%, transparent),
+        transparent 34rem
+      ),
+      linear-gradient(
+        color-mix(in oklch, var(--foreground) 2%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        90deg,
+        color-mix(in oklch, var(--foreground) 2%, transparent) 1px,
+        transparent 1px
+      );
+    background-size:
+      auto,
+      34px 34px,
+      34px 34px;
   }
 
   button,

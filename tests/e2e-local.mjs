@@ -57,11 +57,12 @@ process.env.TLS_SENTINEL_DATA_DIR = join(temporaryDirectory, 'data');
 process.env.TLS_SENTINEL_ALLOW_PRIVATE_TARGETS = 'true';
 process.env.TLS_SENTINEL_API_PORT = '8877';
 
-const [{ createApiServer }, scanner, db] = await Promise.all([
-  import('../server/api.mjs'),
-  import('../server/scanner.mjs'),
-  import('../server/db.mjs'),
-]);
+const [{ createApiServer, getSetupCodeForConsole }, scanner, db] =
+  await Promise.all([
+    import('../server/api.mjs'),
+    import('../server/scanner.mjs'),
+    import('../server/db.mjs'),
+  ]);
 const apiServer = createApiServer();
 scanner.startScanner();
 await new Promise((resolve, reject) => {
@@ -89,6 +90,7 @@ try {
   await request('/api/setup', {
     method: 'POST',
     body: JSON.stringify({
+      setupCode: getSetupCodeForConsole(),
       language: 'tr',
       organization: 'HostCanvas E2E',
       username: 'e2e.admin',

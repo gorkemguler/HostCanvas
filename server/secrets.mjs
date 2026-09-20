@@ -4,7 +4,13 @@ import {
   createHash,
   randomBytes,
 } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 import { DATA_DIRECTORY } from './config.mjs';
@@ -13,8 +19,14 @@ const keyPath = join(DATA_DIRECTORY, '.secret-key');
 
 function loadKey() {
   const configured = process.env.TLS_SENTINEL_SECRET_KEY?.trim();
-  if (configured) return createHash('sha256').update(configured).digest();
-  mkdirSync(DATA_DIRECTORY, { recursive: true });
+  if (configured) {
+    const derivedKey = createHash('sha256').update(configured).digest();
+    delete process.env.TLS_SENTINEL_SECRET_KEY;
+    return derivedKey;
+  }
+  delete process.env.TLS_SENTINEL_SECRET_KEY;
+  mkdirSync(DATA_DIRECTORY, { recursive: true, mode: 0o700 });
+  chmodSync(DATA_DIRECTORY, 0o700);
   if (!existsSync(keyPath)) {
     writeFileSync(keyPath, randomBytes(32).toString('base64url'), {
       encoding: 'utf8',
@@ -23,7 +35,9 @@ function loadKey() {
     });
   }
   chmodSync(keyPath, 0o600);
-  return createHash('sha256').update(readFileSync(keyPath, 'utf8').trim()).digest();
+  return createHash('sha256')
+    .update(readFileSync(keyPath, 'utf8').trim())
+    .digest();
 }
 
 const key = loadKey();
@@ -31,7 +45,10 @@ const key = loadKey();
 export function encryptSecret(value) {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
+  const encrypted = Buffer.concat([
+    cipher.update(String(value), 'utf8'),
+    cipher.final(),
+  ]);
   return [
     'v1',
     iv.toString('base64url'),
@@ -47,7 +64,11 @@ export function decryptSecret(value) {
     error.code = 'INVALID_ENCRYPTED_SECRET';
     throw error;
   }
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
+  const decipher = createDecipheriv(
+    'aes-256-gcm',
+    key,
+    Buffer.from(iv, 'base64url'),
+  );
   decipher.setAuthTag(Buffer.from(tag, 'base64url'));
   return Buffer.concat([
     decipher.update(Buffer.from(encrypted, 'base64url')),

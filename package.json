@@ -4,7 +4,7 @@
   "private": true,
   "description": "Local-first domain inventory, security monitor, and incident manager.",
   "engines": {
-    "node": ">=24.9.0"
+    "node": ">=24.21.0"
   },
   "scripts": {
     "dev": "node scripts/run-processes.mjs dev",
@@ -18,7 +18,8 @@
     "restore": "node scripts/restore.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "node tests/e2e-local.mjs",
-    "lint": "oxlint app server scripts tests",
+    "test:web": "node tests/web-smoke.mjs",
+    "lint": "oxlint app server scripts tests examples proxy.ts",
     "format": "oxfmt"
   },
   "dependencies": {

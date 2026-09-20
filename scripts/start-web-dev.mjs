@@ -1,4 +1,10 @@
 import { spawn } from 'node:child_process';
+import {
+  environmentForWeb,
+  loadApplicationEnvironment,
+} from './environment.mjs';
+
+loadApplicationEnvironment();
 
 const command = process.platform === 'win32' ? 'vinext.cmd' : 'vinext';
 const host = process.env.TLS_SENTINEL_WEB_HOST || '0.0.0.0';
@@ -6,7 +12,7 @@ const port = process.env.TLS_SENTINEL_WEB_PORT || '3000';
 const child = spawn(command, ['dev', '--hostname', host, '--port', port], {
   stdio: 'inherit',
   env: {
-    ...process.env,
+    ...environmentForWeb(),
     WRANGLER_SEND_METRICS: process.env.WRANGLER_SEND_METRICS || 'false',
   },
   shell: false,

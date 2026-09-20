@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://github.com/gorkemguler/HostCanvas/actions/workflows/ci.yml"><img src="https://github.com/gorkemguler/HostCanvas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/version-0.3.0-1f883d" alt="Version 0.3.0">
-  <img src="https://img.shields.io/badge/Node.js-%E2%89%A524.9-339933?logo=nodedotjs&logoColor=white" alt="Node.js 24.9 or newer">
+  <img src="https://img.shields.io/badge/Node.js-%E2%89%A524.21-339933?logo=nodedotjs&logoColor=white" alt="Node.js 24.21 or newer">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/gorkemguler/HostCanvas" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/architecture-local--first-0f766e" alt="Local-first architecture">
 </p>
@@ -21,6 +21,12 @@
 HostCanvas brings managed domains and hostnames, certificate lifetimes, TLS/DNS/HTTP security checks, and recurring incidents into one local workspace. It is not positioned as a full EASM platform; it focuses on domain inventory and continuous operational security visibility.
 
 The application sends no telemetry. Inventory, administrator accounts, session summaries, and scan history remain in a local SQLite database. The services bind so that LAN use is possible, while application policy keeps LAN access disabled until an administrator explicitly enables it.
+
+## Documentation
+
+Read the [English/Turkish Wiki](https://github.com/gorkemguler/HostCanvas/wiki) or its [versioned repository copy](docs/wiki-index.md) for installation, LAN security, scan workflows, notifications and recovery.
+
+To add your own incident type, follow the [custom-rule guide](docs/wiki/Custom-Incident-Types.md) and its tested example. Rules are currently implemented in code; a visual template builder is not included.
 
 ## Screenshots
 
@@ -65,31 +71,33 @@ The application sends no telemetry. Inventory, administrator accounts, session s
 
 Requirements:
 
-- Node.js `24.9+`
+- Node.js `24.21+` (`.node-version` pins the CI/Docker baseline)
 - npm
 - Optional: `testssl.sh` 3.2.x for deep scans
 
 ```bash
-npm install
+npm ci
 cp .env.example .env.local
 npm run dev
 ```
 
 Console: [http://localhost:3000](http://localhost:3000)
 
-Local API: [http://localhost:8787/api/health](http://localhost:8787/api/health)
+Liveness check: [http://localhost:8787/api/health/live](http://localhost:8787/api/health/live). Detailed `/api/health` requires access to the workspace.
 
-`npm run dev` starts both the web console and the scanning service. The first visit opens the setup wizard, where you select a language and access policy, create the administrator account, and optionally add the first asset. Adding a target requires an explicit confirmation that you are authorized to scan it.
+`npm run dev` starts both the web console and the scanning service. The first visit opens the setup wizard, where you select a language and access policy, enter the server-console setup code, create the administrator account, and optionally add the first asset. The setup code is required even on localhost and expires after 15 minutes; reload the wizard to rotate an expired code and read the new one in the console. Adding a target requires explicit confirmation that you are authorized to scan it.
 
 ### Docker Compose
 
 For a hardened LAN deployment with testssl.sh 3.2.4 and a Caddy HTTPS reverse proxy:
 
 ```bash
+cp .env.example .env
+# Edit .env: set TLS_SENTINEL_HTTPS_HOST to your server hostname or IPv4 address.
 docker compose up --build
 ```
 
-The console is available on the LAN at `https://SERVER-IP:3443`. Enable **LAN access** during setup. A remote first-time setup also requires the one-time code shown by `docker compose logs app`. Caddy creates a local CA on first launch. To remove the browser warning, export the CA certificate and install it as a trusted root only on managed clients:
+Open `https://<TLS_SENTINEL_HTTPS_HOST>:3443` using exactly the configured hostname or IP. The default is `localhost`; set a LAN hostname/IP before remote setup, without a scheme, port, or path. Enable **LAN access** during setup and enter the code shown by `docker compose logs app`. Caddy creates a local CA on first launch. Export its CA certificate and install it as a trusted root only on managed clients:
 
 ```bash
 docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt ./host-canvas-local-ca.crt
@@ -109,7 +117,7 @@ Validate hostname + port
 Resolve DNS → classify every IP → pin an allowed IP
     │
     ├── Native TLS / HTTP probe
-    └── testssl.sh adapter (no shell, fixed argv, timeout, output limit)
+    └── testssl.sh adapter (fixed argv, deadline, resource limits)
             │
             ▼
      Normalize observations
@@ -140,12 +148,12 @@ Designed for frequent execution, with a default interval of 12 hours. It uses No
 
 The `testssl.sh` adapter provides cipher/protocol enumeration and known TLS-vulnerability checks. The adapter:
 
-- launches the process with `shell: false`;
+- passes fixed arguments with `shell: false`; on POSIX, a constant shell wrapper sets the file-size limit before `exec`, without interpolating target input;
 - accepts no user-controlled flags or output paths;
 - pins the prevalidated IP with `--ip` and uses `--nodns none`;
 - enables the `--ids-friendly` profile;
 - never enables `--phone-out`;
-- limits execution time and stdout/stderr size; and
+- limits execution time, stdout/stderr, JSON artifact size, and POSIX per-file output size, and isolates the child environment from application secrets; and
 - creates incidents from normalized JSON findings, not from the process exit code.
 
 A testssl.sh result is not an SSL Labs grade. HostCanvas displays its own lightweight operational score. testssl.sh is licensed under [GPLv2](https://github.com/testssl/testssl.sh/blob/3.2/LICENSE); the Docker image carries the pinned source and its license under `/opt/testssl`.
@@ -154,7 +162,7 @@ A testssl.sh result is not an SSL Labs grade. HostCanvas displays its own lightw
 
 The `Subdomain discovery with crt.name` option sends the apex domain to the `https://crt.name/v1/search` API. HostCanvas validates the response with its IDNA/hostname rules, rejects wildcards and out-of-scope domains, removes duplicates, and adds up to 200 subdomains as new assets by default. Discovered assets are linked to their parent, tagged with the `crt.name` source, and scheduled gradually to avoid an immediate scan storm.
 
-This passive discovery covers only names visible in public certificate transparency data and the `crt.name` index. It does not prove that a hostname is still live or owned by the organization. The free service is limited to 100 requests per IP per day. Because the apex domain is sent to an external service, the option is clearly presented and can be disabled.
+This passive discovery covers only names visible in public certificate transparency data and the `crt.name` index. It does not prove that a hostname is still live or owned by the organization. Provider quotas apply. Because the apex domain is sent to an external service, discovery is unchecked by default and requires an explicit per-asset opt-in.
 
 ## Alert catalog
 
@@ -185,6 +193,8 @@ If a probe times out or its parser fails, the rule returns `unknown`. An `unknow
 
 All options and secure defaults are documented in [.env.example](.env.example).
 
+Native launchers and the API load `TLS_SENTINEL_*` values from `.env.local`/`.env` (including mode-specific variants); explicitly exported environment variables take precedence. Docker Compose reads `.env` by default; use `docker compose --env-file .env.local ...` when reusing that file. API secrets are scrubbed from the web/scanner subprocess environment.
+
 | Variable | Default | Description |
 | --- | --- | --- |
 | `TLS_SENTINEL_API_HOST` | `0.0.0.0` | API bind address; application policy still controls actual access |
@@ -200,7 +210,7 @@ All options and secure defaults are documented in [.env.example](.env.example).
 | `TLS_SENTINEL_SECRET_KEY` | automatic `/data/.secret-key` | Webhook-secret encryption key; may come from an external secret manager |
 | `TLS_SENTINEL_TRUST_PROXY` | `false` | Trusts the real client IP only behind an explicitly trusted reverse proxy |
 
-For LAN access, open **Settings → LAN access** from localhost and add the actual console origin you will use, such as `http://192.168.1.20:3000`. Authentication cannot be disabled while LAN access is enabled. A remote first-time setup also requires the one-time code printed by the server.
+For LAN access, add the actual HTTPS console origin under **Settings → LAN access**, such as `https://192.168.1.20:3443`. Both HTTPS and authentication are mandatory remotely. For a custom reverse proxy, configure `TLS_SENTINEL_UI_ORIGINS` before first setup so its hostname passes Host validation. Enable `TLS_SENTINEL_TRUST_PROXY` only when direct API access is restricted to trusted clients/proxies; the proxy must replace `X-Forwarded-For` and `X-Forwarded-Proto`.
 
 The rebrand to HostCanvas deliberately keeps the `TLS_SENTINEL_*` environment variables, `tlsentinel.db` filename, and legacy backup format to avoid breaking existing installations and automation.
 
@@ -216,6 +226,8 @@ Do not expose HostCanvas directly to the public internet. If remote access is re
 
 Manage users and webhook channels under **Settings → Administration center**. The API never returns the full webhook URL. Only `https://` URLs on port `443` are accepted; destination DNS is validated against the public-IP policy and connections are pinned to the validated IP.
 
+Webhook delivery has an eight-second deadline per attempt, up to three attempts for temporary failures, a global concurrency cap, and a bounded waiting queue. Scans do not wait for delivery. Delivery attempts are recorded, but pending work is in memory: interrupted notifications are not replayed after a restart. A receiver may see duplicates after an ambiguous timeout and should deduplicate incident events.
+
 ## Backup and maintenance
 
 The hourly maintenance job creates a verified SQLite backup every 24 hours by default, retains 14 backups, removes completed scan history older than 180 days, and removes testssl artifacts older than 30 days. Configure these values under **Settings → Administration center → Data**.
@@ -226,7 +238,7 @@ npm run backup
 npm run restore -- /absolute/path/tlsentinel-YYYYMMDDTHHMMSSZ.db --confirm
 ```
 
-The restore utility runs `PRAGMA quick_check`, verifies required tables, stops when the current database is locked, and creates a `data/backups/pre-restore-*` recovery copy before replacement. See [docs/operations.md](docs/operations.md) for the complete runbook.
+The restore utility runs `PRAGMA quick_check`, verifies required tables, refuses to run while an app or backup holds the data-directory lock, and creates a `data/backups/pre-restore-*` recovery copy before replacement. On POSIX systems, data directories are owner-only (`0700`) and database/backup/secret files use `0600`; existing state is migrated to these permissions on startup. See [docs/operations.md](docs/operations.md) for the complete runbook.
 
 ## Commands
 
@@ -236,6 +248,7 @@ npm test          # security, rule, and incident tests
 npm run lint      # lint application code
 npx tsc --noEmit  # TypeScript check
 npm run build     # production web build
+npm run test:web  # production page, security headers, no developer endpoints
 npm start         # web + API after a build
 npm run backup    # integrity-checked manual SQLite backup
 npm run restore -- /backup.db --confirm  # guarded restore while the app is stopped

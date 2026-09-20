@@ -64,10 +64,12 @@ export function normalizePort(input) {
 }
 
 function ipv4ToInteger(address) {
-  return address
-    .split('.')
-    .map(Number)
-    .reduce((total, octet) => (total << 8) + octet, 0) >>> 0;
+  return (
+    address
+      .split('.')
+      .map(Number)
+      .reduce((total, octet) => (total << 8) + octet, 0) >>> 0
+  );
 }
 
 function ipv4InCidr(address, base, prefix) {
@@ -106,13 +108,17 @@ export function isPublicAddress(address) {
   const value = ipv6ToBigInt(address);
   if (value == null) return false;
 
+  // IPv4-mapped IPv6 records are unnecessary for hostname scanning and can
+  // otherwise disguise an IPv4 special-use destination.
   const mappedPrefix = 0xffffn;
-  if ((value >> 32n) === mappedPrefix) {
-    const ipv4 = [24n, 16n, 8n, 0n]
-      .map((shift) => Number((value >> shift) & 0xffn))
-      .join('.');
-    return isPublicAddress(ipv4);
+  if (value >> 32n === mappedPrefix) {
+    return false;
   }
+
+  // Currently allocated globally routable unicast space is within 2000::/3.
+  // This also rejects IPv4-compatible, translated/NAT64, site-local, ULA,
+  // link-local and multicast forms before the narrower exclusions below.
+  if (!bigIntInCidr(value, globalUnicastIpv6Base, 3)) return false;
 
   return !nonPublicIpv6Ranges.some(([base, prefix]) =>
     bigIntInCidr(value, base, prefix),
@@ -148,7 +154,10 @@ function ipv6ToBigInt(address) {
   if (omitted < 0 || (halves.length === 1 && left.length !== 8)) return null;
   const segments = [...left, ...Array(omitted).fill('0'), ...right];
   if (segments.length !== 8) return null;
-  return segments.reduce((total, segment) => (total << 16n) | BigInt(`0x${segment}`), 0n);
+  return segments.reduce(
+    (total, segment) => (total << 16n) | BigInt(`0x${segment}`),
+    0n,
+  );
 }
 
 function bigIntInCidr(value, base, prefix) {
@@ -158,15 +167,15 @@ function bigIntInCidr(value, base, prefix) {
 }
 
 const ipv6 = (address) => ipv6ToBigInt(address);
+const globalUnicastIpv6Base = ipv6('2000::');
 const nonPublicIpv6Ranges = [
-  [ipv6('::'), 128],
-  [ipv6('::1'), 128],
-  [ipv6('64:ff9b:1::'), 48],
-  [ipv6('100::'), 64],
+  // IETF protocol assignments include transition/tunnelling technologies such
+  // as Teredo and are not treated as ordinary public scan destinations.
+  [ipv6('2001::'), 23],
   [ipv6('2001:db8::'), 32],
-  [ipv6('fc00::'), 7],
-  [ipv6('fe80::'), 10],
-  [ipv6('ff00::'), 8],
+  [ipv6('2002::'), 16],
+  [ipv6('3ffe::'), 16],
+  [ipv6('3fff::'), 20],
 ];
 
 export async function resolveAndValidateTarget(hostname, options = {}) {
@@ -175,8 +184,26 @@ export async function resolveAndValidateTarget(hostname, options = {}) {
   const lookup = options.lookup || dns.lookup;
 
   let records;
+  let timer;
   try {
-    records = await lookup(normalized, { all: true, verbatim: true });
+    // getaddrinfo cannot be cancelled, but a stalled resolver must not hold a
+    // scan worker forever. Late lookup results are ignored by Promise.race.
+    records = await Promise.race([
+      Promise.resolve().then(() =>
+        lookup(normalized, { all: true, verbatim: true }),
+      ),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              Object.assign(new Error('DNS deadline exceeded'), {
+                code: 'DNS_TIMEOUT',
+              }),
+            ),
+          Math.max(1, Math.min(30_000, Number(options.timeoutMs) || 7_000)),
+        );
+      }),
+    ]);
   } catch (error) {
     const targetError = new TargetValidationError(
       `DNS çözümlemesi başarısız: ${error.code || error.message}`,
@@ -184,11 +211,13 @@ export async function resolveAndValidateTarget(hostname, options = {}) {
     );
     targetError.cause = error;
     throw targetError;
+  } finally {
+    clearTimeout(timer);
   }
 
   const uniqueRecords = [
     ...new Map(records.map((record) => [record.address, record])).values(),
-  ].slice(0, 16);
+  ];
   if (uniqueRecords.length === 0) {
     throw new TargetValidationError(
       'Domain hiçbir A/AAAA kaydına çözülmedi.',
@@ -196,7 +225,9 @@ export async function resolveAndValidateTarget(hostname, options = {}) {
     );
   }
 
-  const blocked = uniqueRecords.filter((record) => !isPublicAddress(record.address));
+  const blocked = uniqueRecords.filter(
+    (record) => !isPublicAddress(record.address),
+  );
   if (blocked.length && !allowPrivate) {
     throw new TargetValidationError(
       `Hedef public olmayan IP adresine çözülüyor (${blocked
@@ -206,12 +237,14 @@ export async function resolveAndValidateTarget(hostname, options = {}) {
     );
   }
 
-  const preferred = uniqueRecords.find((record) => isPublicAddress(record.address)) || uniqueRecords[0];
+  const preferred =
+    uniqueRecords.find((record) => isPublicAddress(record.address)) ||
+    uniqueRecords[0];
   return {
     hostname: normalized,
     address: preferred.address,
     family: preferred.family,
-    records: uniqueRecords.map((record) => ({
+    records: uniqueRecords.slice(0, 16).map((record) => ({
       address: record.address,
       family: record.family,
       public: isPublicAddress(record.address),

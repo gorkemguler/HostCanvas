@@ -1,4 +1,13 @@
-import { mkdir, readdir, stat, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import {
+  chmod,
+  mkdir,
+  open,
+  readdir,
+  rename,
+  stat,
+  unlink,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
 
@@ -17,13 +26,32 @@ function backupName(date = new Date()) {
   return `tlsentinel-${date.toISOString().replaceAll(':', '').replaceAll('-', '').replace('.000Z', 'Z')}.db`;
 }
 
+async function ensurePrivateDirectory(path) {
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  await chmod(path, 0o700);
+}
+
+async function unlinkIfPresent(path) {
+  await unlink(path).catch((error) => {
+    if (error.code !== 'ENOENT') throw error;
+  });
+}
+
+async function removeBackupSidecars(path) {
+  await Promise.all([
+    unlinkIfPresent(`${path}-wal`),
+    unlinkIfPresent(`${path}-shm`),
+  ]);
+}
+
 export async function listBackups() {
-  await mkdir(BACKUP_DIRECTORY, { recursive: true });
+  await ensurePrivateDirectory(BACKUP_DIRECTORY);
   const names = await readdir(BACKUP_DIRECTORY);
   const backups = [];
   for (const name of names) {
     if (!/^tlsentinel-\d{8}T\d{6}(?:\.\d{3})?Z\.db$/.test(name)) continue;
-    const details = await stat(join(BACKUP_DIRECTORY, name));
+    const path = join(BACKUP_DIRECTORY, name);
+    const details = await stat(path);
     backups.push({
       name,
       size: details.size,
@@ -38,26 +66,55 @@ export async function listBackups() {
 async function pruneBackups(retentionCount) {
   const backups = await listBackups();
   for (const item of backups.slice(retentionCount)) {
-    await unlink(join(BACKUP_DIRECTORY, item.name));
+    const path = join(BACKUP_DIRECTORY, item.name);
+    await unlink(path);
+    await removeBackupSidecars(path);
   }
   return Math.max(0, backups.length - retentionCount);
 }
 
 export async function createDatabaseBackup() {
-  await mkdir(BACKUP_DIRECTORY, { recursive: true });
-  const name = backupName();
-  const destination = join(BACKUP_DIRECTORY, name);
-  await backup(database, destination);
-  const details = await stat(destination);
-  const backupDatabase = new DatabaseSync(destination, { readOnly: true });
-  const integrity = backupDatabase.prepare('PRAGMA quick_check').get();
-  backupDatabase.close();
-  if (integrity.quick_check !== 'ok') {
-    await unlink(destination);
-    throw new Error(
-      'Veritabanı bütünlük kontrolü başarısız olduğu için yedek oluşturulmadı.',
-    );
+  await ensurePrivateDirectory(BACKUP_DIRECTORY);
+  const temporary = join(BACKUP_DIRECTORY, `.backup-${randomUUID()}.db`);
+  let backupDatabase;
+  let destination;
+  let name;
+  try {
+    await backup(database, temporary);
+    await chmod(temporary, 0o600);
+    backupDatabase = new DatabaseSync(temporary);
+    backupDatabase.exec('PRAGMA journal_mode = DELETE');
+    const integrity = backupDatabase.prepare('PRAGMA quick_check').get();
+    if (integrity.quick_check !== 'ok') {
+      throw new Error(
+        'Veritabanı bütünlük kontrolü başarısız olduğu için yedek oluşturulmadı.',
+      );
+    }
+    backupDatabase.close();
+    backupDatabase = null;
+    // Reserve a unique timestamp even when CLI and scheduled backups overlap.
+    for (let timestamp = Date.now(); ; timestamp += 1) {
+      name = backupName(new Date(timestamp));
+      const candidate = join(BACKUP_DIRECTORY, name);
+      try {
+        const reservation = await open(candidate, 'wx', 0o600);
+        await reservation.close();
+        destination = candidate;
+        break;
+      } catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+      }
+    }
+    await rename(temporary, destination);
+  } catch (error) {
+    if (destination) await unlinkIfPresent(destination);
+    throw error;
+  } finally {
+    backupDatabase?.close();
+    await unlinkIfPresent(temporary);
+    await removeBackupSidecars(temporary);
   }
+  const details = await stat(destination);
   await pruneBackups(getMaintenanceSettings().backupRetentionCount);
   return { name, size: details.size, createdAt: details.mtime.toISOString() };
 }
@@ -70,7 +127,7 @@ export function resolveBackupPath(name) {
 }
 
 async function cleanupArtifacts(retentionDays) {
-  await mkdir(ARTIFACT_DIRECTORY, { recursive: true });
+  await ensurePrivateDirectory(ARTIFACT_DIRECTORY);
   const cutoff = Date.now() - retentionDays * 86_400_000;
   let removed = 0;
   for (const name of await readdir(ARTIFACT_DIRECTORY)) {
@@ -130,6 +187,8 @@ export function startMaintenance() {
   maintenanceTimer.unref();
 }
 
-export function stopMaintenance() {
+export async function stopMaintenance() {
   if (maintenanceTimer) clearInterval(maintenanceTimer);
+  maintenanceTimer = undefined;
+  await runningPromise;
 }

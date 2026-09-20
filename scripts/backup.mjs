@@ -1,5 +1,9 @@
-import { closeDatabase } from '../server/db.mjs';
-import { createDatabaseBackup } from '../server/maintenance.mjs';
+globalThis[Symbol.for('hostcanvas.database.role')] = 'backup';
+
+const [{ closeDatabase }, { createDatabaseBackup }] = await Promise.all([
+  import('../server/db.mjs'),
+  import('../server/maintenance.mjs'),
+]);
 
 try {
   const result = await createDatabaseBackup();

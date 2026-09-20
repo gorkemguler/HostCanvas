@@ -1,15 +1,67 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { acquireStateLock, releaseStateLock } from './state-lock.mjs';
 
-import { DATA_DIRECTORY, DATABASE_PATH } from './config.mjs';
+import {
+  ARTIFACT_DIRECTORY,
+  BACKUP_DIRECTORY,
+  DATA_DIRECTORY,
+  DATABASE_PATH,
+} from './config.mjs';
 
-mkdirSync(DATA_DIRECTORY, { recursive: true });
+process.umask(0o077);
+
+const STATE_LOCK_PATH = join(DATA_DIRECTORY, '.state-lock.db');
+const databaseRole = globalThis[Symbol.for('hostcanvas.database.role')];
+let stateLockDatabase = null;
+let databaseClosed = false;
+
+function secureDirectory(path) {
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  chmodSync(path, 0o700);
+}
+
+function secureRegularFile(path) {
+  try {
+    if (lstatSync(path).isFile()) chmodSync(path, 0o600);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
+function migrateStatePermissions() {
+  for (const path of [DATA_DIRECTORY, BACKUP_DIRECTORY, ARTIFACT_DIRECTORY]) {
+    secureDirectory(path);
+  }
+  for (const path of [
+    DATABASE_PATH,
+    `${DATABASE_PATH}-wal`,
+    `${DATABASE_PATH}-shm`,
+    STATE_LOCK_PATH,
+    `${STATE_LOCK_PATH}-journal`,
+    join(DATA_DIRECTORY, '.secret-key'),
+  ]) {
+    secureRegularFile(path);
+  }
+  for (const directory of [BACKUP_DIRECTORY, ARTIFACT_DIRECTORY]) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isFile()) secureRegularFile(join(directory, entry.name));
+    }
+  }
+}
+
+migrateStatePermissions();
+stateLockDatabase = acquireStateLock(DATA_DIRECTORY, databaseRole);
 
 export const database = new DatabaseSync(DATABASE_PATH);
 database.exec('PRAGMA journal_mode = WAL');
 database.exec('PRAGMA foreign_keys = ON');
 database.exec('PRAGMA busy_timeout = 5000');
+secureRegularFile(DATABASE_PATH);
+secureRegularFile(`${DATABASE_PATH}-wal`);
+secureRegularFile(`${DATABASE_PATH}-shm`);
 
 database.exec(`
   CREATE TABLE IF NOT EXISTS assets (
@@ -1573,5 +1625,14 @@ export function getDashboard() {
 }
 
 export function closeDatabase() {
-  database.close();
+  if (databaseClosed) return;
+  databaseClosed = true;
+  try {
+    database.close();
+  } finally {
+    if (stateLockDatabase) {
+      releaseStateLock(stateLockDatabase);
+      stateLockDatabase = null;
+    }
+  }
 }

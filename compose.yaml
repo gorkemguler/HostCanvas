@@ -5,13 +5,22 @@ services:
     build:
       context: .
     restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    pids_limit: 256
+    mem_limit: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
     environment:
       TLS_SENTINEL_DATA_DIR: /data
       TLS_SENTINEL_API_HOST: 0.0.0.0
       TLS_SENTINEL_API_PORT: 8787
       TLS_SENTINEL_WEB_HOST: 0.0.0.0
       TLS_SENTINEL_WEB_PORT: 3000
-      TLS_SENTINEL_UI_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      TLS_SENTINEL_UI_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,https://${TLS_SENTINEL_HTTPS_HOST:-localhost}:3443
       TLS_SENTINEL_ALLOW_PRIVATE_TARGETS: ${TLS_SENTINEL_ALLOW_PRIVATE_TARGETS:-false}
       TLS_SENTINEL_PUBLIC_DNS_RESOLVER: ${TLS_SENTINEL_PUBLIC_DNS_RESOLVER:-}
       TLS_SENTINEL_CRT_NAME_ENABLED: ${TLS_SENTINEL_CRT_NAME_ENABLED:-true}
@@ -37,7 +46,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://127.0.0.1:8787/api/bootstrap').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:8787/api/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
         ]
       interval: 15s
       timeout: 5s
@@ -47,6 +56,15 @@ services:
   proxy:
     image: caddy:2-alpine
     restart: unless-stopped
+    environment:
+      TLS_SENTINEL_HTTPS_HOST: ${TLS_SENTINEL_HTTPS_HOST:-localhost}
+    pids_limit: 128
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
     depends_on:
       app:
         condition: service_healthy

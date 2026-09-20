@@ -64,7 +64,7 @@ function openTlsSocket(target, options = {}) {
       rejectUnauthorized: false,
       minVersion: options.minVersion,
       maxVersion: options.maxVersion,
-      ALPNProtocols: ['h2', 'http/1.1'],
+      ALPNProtocols: options.alpnProtocols || ['h2', 'http/1.1'],
     });
 
     const timer = setTimeout(() => {
@@ -87,7 +87,18 @@ function openTlsSocket(target, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      socket.destroy();
       reject(error);
+    });
+    socket.once('close', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(
+        Object.assign(new Error('TLS bağlantısı tamamlanmadan kapandı.'), {
+          code: 'TLS_PREMATURE_CLOSE',
+        }),
+      );
     });
   });
 }
@@ -116,7 +127,7 @@ async function probeProtocol(target, version) {
       timeoutMs: Math.min(NATIVE_SCAN_TIMEOUT_MS, 5_000),
     });
     const negotiated = socket.getProtocol();
-    socket.end();
+    socket.destroy();
     return { supported: true, negotiated };
   } catch (error) {
     return classifyProtocolProbeError(error);
@@ -125,50 +136,54 @@ async function probeProtocol(target, version) {
 
 export async function probeTls(target) {
   const socket = await openTlsSocket(target);
-  const peer = socket.getPeerCertificate(true);
-  if (!peer?.raw) {
+  try {
+    const peer = socket.getPeerCertificate(true);
+    if (!peer?.raw) {
+      socket.destroy();
+      const error = new Error('Sunucu bir X.509 sertifikası göndermedi.');
+      error.code = 'CERTIFICATE_MISSING';
+      throw error;
+    }
+
+    const x509 = new X509Certificate(peer.raw);
+    const hostnameError = tls.checkServerIdentity(target.hostname, peer);
+    const observation = {
+      protocol: socket.getProtocol(),
+      cipher: socket.getCipher(),
+      alpn: socket.alpnProtocol || null,
+      ephemeralKey: socket.getEphemeralKeyInfo?.() || null,
+      authorized: socket.authorized,
+      authorizationError: socket.authorizationError || null,
+      certificate: {
+        subject: x509.subject,
+        issuer: x509.issuer,
+        subjectAltName: x509.subjectAltName,
+        serialNumber: x509.serialNumber,
+        fingerprint256: x509.fingerprint256,
+        validFrom: new Date(x509.validFrom).toISOString(),
+        validTo: new Date(x509.validTo).toISOString(),
+        signatureAlgorithm: x509.signatureAlgorithm || null,
+        hostnameMatches: !hostnameError,
+        hostnameError: hostnameError?.message || null,
+        chainDepth: certificateDepth(peer),
+        publicKey: keyDetails(x509),
+      },
+      protocols: {},
+    };
     socket.destroy();
-    const error = new Error('Sunucu bir X.509 sertifikası göndermedi.');
-    error.code = 'CERTIFICATE_MISSING';
-    throw error;
+
+    const versions = ['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3'];
+    const results = await Promise.all(
+      versions.map(async (version) => [
+        version,
+        await probeProtocol(target, version),
+      ]),
+    );
+    observation.protocols = Object.fromEntries(results);
+    return observation;
+  } finally {
+    socket.destroy();
   }
-
-  const x509 = new X509Certificate(peer.raw);
-  const hostnameError = tls.checkServerIdentity(target.hostname, peer);
-  const observation = {
-    protocol: socket.getProtocol(),
-    cipher: socket.getCipher(),
-    alpn: socket.alpnProtocol || null,
-    ephemeralKey: socket.getEphemeralKeyInfo?.() || null,
-    authorized: socket.authorized,
-    authorizationError: socket.authorizationError || null,
-    certificate: {
-      subject: x509.subject,
-      issuer: x509.issuer,
-      subjectAltName: x509.subjectAltName,
-      serialNumber: x509.serialNumber,
-      fingerprint256: x509.fingerprint256,
-      validFrom: new Date(x509.validFrom).toISOString(),
-      validTo: new Date(x509.validTo).toISOString(),
-      signatureAlgorithm: x509.signatureAlgorithm || null,
-      hostnameMatches: !hostnameError,
-      hostnameError: hostnameError?.message || null,
-      chainDepth: certificateDepth(peer),
-      publicKey: keyDetails(x509),
-    },
-    protocols: {},
-  };
-  socket.end();
-
-  const versions = ['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3'];
-  const results = await Promise.all(
-    versions.map(async (version) => [
-      version,
-      await probeProtocol(target, version),
-    ]),
-  );
-  observation.protocols = Object.fromEntries(results);
-  return observation;
 }
 
 export async function probeHttpHeaders(target) {
@@ -176,10 +191,12 @@ export async function probeHttpHeaders(target) {
   try {
     socket = await openTlsSocket(target, {
       timeoutMs: Math.min(NATIVE_SCAN_TIMEOUT_MS, 6_000),
+      alpnProtocols: ['http/1.1'],
     });
     return await new Promise((resolve) => {
       let settled = false;
       let response = '';
+      let responseBytes = 0;
       const finish = (value) => {
         if (settled) return;
         settled = true;
@@ -194,8 +211,9 @@ export async function probeHttpHeaders(target) {
 
       socket.setEncoding('utf8');
       socket.on('data', (chunk) => {
+        responseBytes += Buffer.byteLength(chunk, 'utf8');
         response += chunk;
-        if (response.length > 64 * 1024) {
+        if (responseBytes > 64 * 1024) {
           finish({ status: 'unknown', error: 'HTTP_HEADERS_TOO_LARGE' });
           return;
         }
@@ -240,8 +258,12 @@ export async function probeHttpHeaders(target) {
       socket.once('end', () => {
         if (!settled) finish({ status: 'not_http' });
       });
+      socket.once('close', () => {
+        if (!settled)
+          finish({ status: 'unknown', error: 'HTTP_PREMATURE_CLOSE' });
+      });
       socket.write(
-        `HEAD / HTTP/1.1\r\nHost: ${target.hostname}\r\nUser-Agent: ${APP_NAME}/${APP_VERSION}\r\nAccept: */*\r\nConnection: close\r\n\r\n`,
+        `HEAD / HTTP/1.1\r\nHost: ${target.hostname}${target.port === 443 ? '' : `:${target.port}`}\r\nUser-Agent: ${APP_NAME}/${APP_VERSION}\r\nAccept: */*\r\nConnection: close\r\n\r\n`,
       );
     });
   } catch (error) {

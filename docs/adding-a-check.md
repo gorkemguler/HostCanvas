@@ -1,86 +1,35 @@
-# Yeni kontrol ekleme
+# Yeni kontrol / özel incident türü ekleme
 
-HostCanvas’ta ağdan veri toplama ve alarm üretme birbirinden ayrıdır:
+Tam rehberler:
+
+- [Türkçe: Kendi incident türünü oluşturma](wiki/Ozel-Incident-Turu-Olusturma.md)
+- [English: Creating custom incident types](wiki/Custom-Incident-Types.md)
+- [Wiki sürümü](https://github.com/gorkemguler/HostCanvas/wiki/Ozel-Incident-Turu-Olusturma)
+
+HostCanvas şu anda kodla tanımlanan kurallar kullanır; panelden template yükleme veya görsel kural editörü yoktur. Yeni kontrol için gözlem toplayan probe ile karar veren kural birbirinden ayrılır:
 
 ```text
-Probe.collect(endpoint) → sürümlü observation
-Rule.evaluate(observation, policy) → pass | fail | unknown
+doğrulanmış ve IP’si sabitlenmiş hedef → probe → observation
+observation + politika → saf kural → pass | fail | unknown
+değerlendirmeler → incident reconciliation → açılma/yeniden açılma bildirimi
 ```
 
-Bu ayrım sayesinde aynı TLS/DNS/HTTP gözlemi birçok rule tarafından yeniden kullanılabilir ve bir kuralın kullanıcı girdisiyle ağ erişimi başlatması engellenir.
+## En kısa yol
 
-## 1. Observation şemasını belirleyin
+1. Mevcut TLS/HTTP/DNS gözleminde yeterli veri varsa yeni ağ isteği eklemeyin.
+2. [Çalışır sertifika ömrü örneğini](../examples/custom-check/certificate-validity.mjs) başlangıç alın. Örneğin 90 günlük eşiği bir kurum politikasıdır; genel CA zorunluluğu iddiası değildir.
+3. `server/rules/index.mjs` içinde `ruleCatalog` kaydını **ve** `evaluateObservations` içindeki fonksiyon çağrısını ekleyin. Yalnızca katalog kaydı kontrolü çalıştırmaz.
+4. [Örnek testlerdeki](../tests/custom-check-example.test.mjs) fail/pass/unknown, sınır değerleri ve yaşam döngüsü senaryolarını yeni üretim modülüne uyarlayın; ana evaluator entegrasyonunu ayrıca test edin.
+5. Testleri çalıştırın, API’yi yeniden başlatın veya Docker image’ını yeniden derleyin. Yetkili test varlığında aynı bulgunun tekrarında aynı incident’ın güncellendiğini doğrulayın.
 
-Yeni kontrol mevcut gözlemdeki alanlarla çalışabiliyorsa yeni probe yazmayın. Örneğin sertifika bitiş tarihi `observations.tls.certificate.validTo` altında zaten vardır.
+## Değişmez kurallar
 
-Yeni veri gerekiyorsa `server/probes/` altında dar kapsamlı bir modül oluşturun. Probe:
+- Eksik/timeout/bozuk gözlem `unknown` olmalı; mevcut incident’ı çözmemeli.
+- Sabit `ruleKey` kullanın. Sertifika rotasyonu veya scan ID yüzünden kimliği değiştirmeyin.
+- `enabled` katalog metadatası, `recommendedCadence` gösterim önerisidir; genel runtime kapatma veya bağımsız kural zamanlaması sağlamaz.
+- Mevcut reconciliation’da `pass`, aynı asset ve ruleKey altındaki **bütün** aktif discriminator’ları çözer. Aynı kural için alt-öğe bazında pass ve fail karıştırmayın. Ayrıntılı rehber çoklu sonuç stratejisini açıklar.
+- `completePrefixes` yalnızca gerçekten tam taranan, dar ve kuralın sahip olduğu isim alanlarında kullanılmalıdır; kısmi sonuçta kapatma yapmayın.
+- Kanıt küçük, JSON-serileştirilebilir ve secret içermeyen veri olmalıdır. UI’ya güvensiz HTML basmayın.
+- Kuraldan ağ isteği, veritabanı yazımı veya webhook gönderimi yapmayın; ilgili mevcut katmanı kullanın.
 
-- yalnızca scanner tarafından doğrulanıp sabitlenmiş hedefi kabul etmeli,
-- timeout uygulamalı,
-- kullanıcı kontrollü shell/flag/path çalıştırmamalı,
-- sonucu JSON-serileştirilebilir, sürümlü ve boyutu sınırlı bir nesneye dönüştürmeli,
-- başarısızlığı `unknown` üretebilecek şekilde açıklamalıdır.
-
-## 2. Kuralı kataloğa ekleyin
-
-`server/rules/index.mjs` içindeki `ruleCatalog` listesine stabil bir anahtar ekleyin:
-
-```js
-{
-  key: 'dns.dangling_cname',
-  title: 'Dangling CNAME tespit edildi',
-  category: 'DNS',
-  severity: 'high',
-  source: 'Public DNS',
-  enabled: true,
-}
-```
-
-Kural anahtarı yayınlandıktan sonra yeniden adlandırılmamalıdır; incident kimliği bu anahtarı kullanır.
-
-## 3. Değerlendirme üretin
-
-Kural üç güvenilir durumdan birini dönmelidir:
-
-- `pass`: Kontrol eksiksiz çalıştı ve risk yok. Mevcut incident kapanabilir.
-- `fail`: Risk doğrulandı. Incident açılır veya aynı incident güncellenir.
-- `unknown`: Probe eksik, timeout, parser uyumsuz veya kanıt yetersiz. Mevcut incident korunur.
-
-Fail örneği:
-
-```js
-{
-  ruleKey: 'dns.dangling_cname',
-  status: 'fail',
-  discriminator: 'target.example.net',
-  severity: 'high',
-  title: 'Dangling CNAME tespit edildi',
-  description: 'CNAME hedefi public DNS üzerinde çözümlenemiyor.',
-  evidence: {
-    cname: 'target.example.net',
-    resolver: '1.1.1.1',
-  },
-}
-```
-
-`discriminator`, aynı endpoint’te aynı kuralın birden çok bağımsız incident üretmesi gerektiğinde kullanılır. Sertifika bitiş eşiği gibi tek operasyonel sorunlarda discriminator kullanmayın; sertifika rotasyonu incident geçmişini parçalamamalıdır.
-
-## 4. Reconciliation kurallarını koruyun
-
-- Timeout veya `unknown` mevcut incident’ı çözmemeli.
-- Dinamik scanner bulguları yalnızca ilgili scan bölümü eksiksizse “artık görünmüyor” diye kapatılmalı.
-- Kanıt UI’ya HTML olarak basılmamalı; JSON/metin olarak escape edilmelidir.
-- Severity değişimi aynı incident üzerinde güncellenmelidir.
-
-## 5. Test ekleyin
-
-En az şu senaryoları `tests/` altında doğrulayın:
-
-1. Riskli gözlem `fail` üretir.
-2. Sağlıklı, eksiksiz gözlem `pass` üretir.
-3. Eksik/timeout gözlemi `unknown` üretir.
-4. `fail → unknown` incident’ı açık tutar.
-5. `fail → pass` incident’ı çözer.
-6. `resolved → fail` aynı incident’ı yeniden açar.
-
-Güvenlik hassas bir probe ekleniyorsa IDNA, private IP, IPv4-mapped IPv6, DNS rebinding, output limit ve subprocess timeout testlerini de ekleyin.
+Örnek varsayılan uygulamaya etkinleştirilmiş değildir. Entegrasyon adımları, kanıt sözleşmesi, bildirim davranışı, yeni probe güvenliği ve hata giderme için yukarıdaki tam rehberleri okuyun.

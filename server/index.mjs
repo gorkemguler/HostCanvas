@@ -21,13 +21,39 @@ async function shutdown(signal, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`\n${signal}: ${APP_NAME} durduruluyor…`);
-  if (server.listening) {
-    await new Promise((resolve) => server.close(resolve));
+  // Stop accepting work immediately, but let existing requests/backups finish
+  // before closing SQLite. A stuck client cannot hold shutdown indefinitely.
+  const deadline = setTimeout(() => process.exit(1), 35_000);
+  deadline.unref();
+  const drain = async () => {
+    if (server.listening) {
+      const forceClose = setTimeout(() => server.closeAllConnections(), 5_000);
+      forceClose.unref();
+      try {
+        await new Promise((resolve) => server.close(resolve));
+      } finally {
+        clearTimeout(forceClose);
+      }
+    }
+    await server.waitForRequests();
+  };
+  const results = await Promise.allSettled([
+    drain(),
+    stopScanner(),
+    stopMaintenance(),
+  ]);
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.error('[shutdown]', result.reason);
+      exitCode = 1;
+    }
   }
-  await stopScanner();
-  stopMaintenance();
-  closeDatabase();
-  process.exit(exitCode);
+  try {
+    closeDatabase();
+  } finally {
+    clearTimeout(deadline);
+    process.exit(exitCode);
+  }
 }
 
 process.on('SIGINT', () => shutdown('SIGINT'));

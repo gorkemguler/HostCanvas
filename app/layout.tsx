@@ -19,6 +19,9 @@ export const metadata: Metadata = {
   title: 'HostCanvas — Yerel domain envanteri ve güvenlik izleme',
   description:
     'Ekipler için local-first domain envanteri, TLS/DNS/HTTP güvenlik kontrolleri ve incident takibi.',
+  icons: {
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+  },
   openGraph: {
     title: 'HostCanvas',
     description: 'Local-first domain inventory and security monitoring.',

@@ -1,23 +1,31 @@
-https://:3443 {
-  tls internal
-  encode zstd gzip
+{
+	admin off
+	auto_https disable_redirects
+	skip_install_trust
+}
 
-  header {
-    Strict-Transport-Security "max-age=31536000"
-    X-Content-Type-Options "nosniff"
-    X-Frame-Options "DENY"
-    Referrer-Policy "no-referrer"
-    Permissions-Policy "camera=(), microphone=(), geolocation=()"
-    -Server
-  }
+https://{$TLS_SENTINEL_HTTPS_HOST:localhost}:3443 {
+	tls internal
+	encode zstd gzip
 
-  handle /api/* {
-    reverse_proxy app:8787 {
-      header_up X-Forwarded-For {remote_host}
-    }
-  }
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+		-Server
+	}
 
-  handle {
-    reverse_proxy app:3000
-  }
+	handle /api/* {
+		reverse_proxy app:8787 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	handle {
+		reverse_proxy app:3000
+	}
 }

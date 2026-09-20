@@ -1,0 +1,1 @@
+HostCanvas · Local-first domain security visibility · [Versioned documentation / Sürümlenen belgeler](https://github.com/gorkemguler/HostCanvas/blob/main/docs/wiki-index.md). Scan only authorized assets / Yalnızca yetkili varlıkları tarayın.

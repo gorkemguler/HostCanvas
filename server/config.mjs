@@ -1,5 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { loadApplicationEnvironment } from '../scripts/environment.mjs';
+
+loadApplicationEnvironment();
 
 const serverDirectory = dirname(fileURLToPath(import.meta.url));
 

@@ -1,7 +1,8 @@
 import { createServer } from 'node:http';
 import { createReadStream, statSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { randomBytes } from 'node:crypto';
+import { isIP } from 'node:net';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 import {
   ALLOW_PRIVATE_TARGETS,
@@ -84,26 +85,45 @@ class ApiError extends Error {
   }
 }
 
-const setupCode = randomBytes(6).toString('hex').toUpperCase();
+const SETUP_CODE_TTL_MS = 15 * 60_000;
+const LOGIN_WINDOW_MS = 5 * 60_000;
+const LOGIN_BLOCK_MS = 5 * 60_000;
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_ATTEMPT_LIMIT = 4_096;
+const PASSWORD_WORK_LIMIT = 8;
+const PASSWORD_WORK_PER_ADDRESS = 4;
+
+let setupCodeState = createSetupCode();
 const loginAttempts = new Map();
+const passwordWork = new Map();
+let activePasswordWork = 0;
+
+function createSetupCode() {
+  return {
+    value: randomBytes(6).toString('hex').toUpperCase(),
+    expiresAt: Date.now() + SETUP_CODE_TTL_MS,
+  };
+}
+
+function currentSetupCode({ announceRotation = false } = {}) {
+  if (setupCodeState.expiresAt <= Date.now()) {
+    setupCodeState = createSetupCode();
+    if (announceRotation) {
+      console.log(`İlk kurulum kodu yenilendi: ${setupCodeState.value}`);
+    }
+  }
+  return setupCodeState.value;
+}
 
 export function getSetupCodeForConsole() {
-  return getAppSettings().setupCompleted ? null : setupCode;
+  return getAppSettings().setupCompleted ? null : currentSetupCode();
 }
 
 function requestAddress(request) {
-  if (TRUST_PROXY) {
-    const forwarded = Array.isArray(request.headers['x-forwarded-for'])
-      ? request.headers['x-forwarded-for'][0]
-      : request.headers['x-forwarded-for'];
-    const address = String(forwarded || '')
-      .split(',')[0]
-      .trim();
-    if (address)
-      return address.startsWith('::ffff:') ? address.slice(7) : address;
-  }
+  const proxy = trustedProxyContext(request);
+  if (proxy) return normalizeRemoteAddress(proxy.address);
   const address = request.socket.remoteAddress || '';
-  return address.startsWith('::ffff:') ? address.slice(7) : address;
+  return normalizeRemoteAddress(address);
 }
 
 function isLoopbackRequest(request) {
@@ -112,10 +132,44 @@ function isLoopbackRequest(request) {
 }
 
 function isSecureRequest(request) {
-  return Boolean(
-    request.socket.encrypted ||
-    safeOrigin(request.headers.origin)?.startsWith('https://'),
-  );
+  return requestScheme(request) === 'https';
+}
+
+function headerValue(request, name) {
+  const value = request.headers[name];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function normalizeRemoteAddress(value) {
+  const address = String(value || '').trim();
+  return address.startsWith('::ffff:') ? address.slice(7) : address;
+}
+
+function trustedProxyContext(request) {
+  if (!TRUST_PROXY) return null;
+  const forwardedAddress = headerValue(request, 'x-forwarded-for');
+  const forwardedScheme = headerValue(request, 'x-forwarded-proto');
+  if (forwardedAddress === undefined && forwardedScheme === undefined)
+    return null;
+  const address = String(forwardedAddress || '').trim();
+  const scheme = String(forwardedScheme || '')
+    .trim()
+    .toLowerCase();
+  // A trusted, directly connected proxy must replace these fields, not append
+  // a client-controlled chain. Reject partial/malformed context fail-closed.
+  if (!isIP(address) || !['http', 'https'].includes(scheme)) {
+    throw new ApiError(
+      400,
+      'Proxy başlıkları geçersiz.',
+      'INVALID_PROXY_HEADERS',
+    );
+  }
+  return { address, scheme };
+}
+
+function requestScheme(request) {
+  if (request.socket.encrypted) return 'https';
+  return trustedProxyContext(request)?.scheme || 'http';
 }
 
 function safeOrigin(value) {
@@ -135,6 +189,93 @@ function safeOrigin(value) {
   } catch {
     return null;
   }
+}
+
+function parseRequestHost(request) {
+  const value = String(headerValue(request, 'host') || '').trim();
+  if (!value || value.length > 255 || /[\s/@?#\\]/.test(value)) return null;
+  try {
+    const parsed = new URL(`http://${value}`);
+    if (
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== '/' ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      return null;
+    }
+    return {
+      authority: parsed.host.toLowerCase(),
+      hostname: parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackHostname(hostname) {
+  return (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname === '::1' ||
+    /^127(?:\.\d{1,3}){3}$/.test(hostname)
+  );
+}
+
+function originHostname(origin) {
+  try {
+    return new URL(origin).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function requestOrigin(request, host = parseRequestHost(request)) {
+  if (!host) return null;
+  try {
+    return new URL(`${requestScheme(request)}://${host.authority}`).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isSameOriginRequest(request, origin) {
+  const normalized = safeOrigin(origin);
+  return Boolean(normalized && normalized === requestOrigin(request));
+}
+
+function allowedRawHostnames(settings) {
+  const hostnames = new Set(
+    [...UI_ORIGINS, ...(settings?.allowedOrigins || [])]
+      .map(originHostname)
+      .filter(Boolean),
+  );
+  const configuredHost = String(API_HOST || '')
+    .replace(/^\[|\]$/g, '')
+    .toLowerCase();
+  if (configuredHost && !['0.0.0.0', '::'].includes(configuredHost)) {
+    hostnames.add(configuredHost);
+  }
+  return hostnames;
+}
+
+function ensureAllowedHost(request, settings) {
+  const host = parseRequestHost(request);
+  if (!host) {
+    throw new ApiError(400, 'Host başlığı geçersiz.', 'INVALID_HOST');
+  }
+  if (
+    isLoopbackHostname(host.hostname) ||
+    allowedRawHostnames(settings).has(host.hostname)
+  ) {
+    return host;
+  }
+  throw new ApiError(
+    421,
+    'Raw API isteğinin Host başlığına izin verilmiyor.',
+    'HOST_NOT_ALLOWED',
+  );
 }
 
 function configuredOrigins() {
@@ -182,7 +323,7 @@ function suggestedOrigins() {
         address.family === 'IPv6'
           ? `[${address.address.split('%')[0]}]`
           : address.address;
-      const origin = `http://${host}:3000`;
+      const origin = `https://${host}:3443`;
       if (address.family === 'IPv6') ipv6Origins.push(origin);
       else ipv4Origins.push(origin);
     }
@@ -191,7 +332,7 @@ function suggestedOrigins() {
   return [...origins];
 }
 
-function securityHeaders(origin = null, reflectSafeOrigin = false) {
+function securityHeaders(origin = null) {
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -200,10 +341,7 @@ function securityHeaders(origin = null, reflectSafeOrigin = false) {
     'Cross-Origin-Resource-Policy': 'cross-origin',
   };
   const normalizedOrigin = safeOrigin(origin);
-  if (
-    normalizedOrigin &&
-    (reflectSafeOrigin || originIsAllowed(normalizedOrigin))
-  ) {
+  if (normalizedOrigin && originIsAllowed(normalizedOrigin)) {
     headers['Access-Control-Allow-Origin'] = normalizedOrigin;
     headers['Access-Control-Allow-Credentials'] = 'true';
     headers.Vary = 'Origin';
@@ -211,16 +349,9 @@ function securityHeaders(origin = null, reflectSafeOrigin = false) {
   return headers;
 }
 
-function sendJson(
-  response,
-  status,
-  body,
-  origin = null,
-  extraHeaders = {},
-  reflectSafeOrigin = false,
-) {
+function sendJson(response, status, body, origin = null, extraHeaders = {}) {
   response.writeHead(status, {
-    ...securityHeaders(origin, reflectSafeOrigin),
+    ...securityHeaders(origin),
     ...extraHeaders,
   });
   response.end(JSON.stringify(body));
@@ -245,11 +376,20 @@ async function readJson(request) {
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
+  let body;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
     throw new ApiError(400, 'JSON gövdesi geçersiz.', 'INVALID_JSON');
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiError(
+      400,
+      'JSON gövdesi bir nesne olmalıdır.',
+      'INVALID_JSON',
+    );
+  }
+  return body;
 }
 
 function text(value, maximum = 120) {
@@ -446,11 +586,24 @@ function settingsInput(body, current = getAppSettings()) {
     body.allowedOrigins === undefined
       ? current.allowedOrigins
       : normalizeOrigins(body.allowedOrigins);
-  if (lanEnabled && !allowedOrigins.some((origin) => !UI_ORIGINS.has(origin))) {
+  const lanOrigins = allowedOrigins.filter(
+    (origin) => !isLoopbackHostname(originHostname(origin)),
+  );
+  if (lanEnabled && lanOrigins.length === 0) {
     throw new ApiError(
       422,
       'LAN erişimi için bu cihazın LAN panel adresini izinli adreslere ekleyin.',
       'LAN_ORIGIN_REQUIRED',
+    );
+  }
+  if (
+    lanEnabled &&
+    lanOrigins.some((origin) => new URL(origin).protocol !== 'https:')
+  ) {
+    throw new ApiError(
+      422,
+      'LAN erişimi için panel adresi HTTPS kullanmalıdır.',
+      'LAN_HTTPS_REQUIRED',
     );
   }
   return {
@@ -487,30 +640,90 @@ function settingsInput(body, current = getAppSettings()) {
   };
 }
 
-function assertLoginRate(request) {
-  const key = requestAddress(request) || 'unknown';
+function pruneLoginAttempts(now = Date.now()) {
+  for (const [key, attempt] of loginAttempts) {
+    if (
+      attempt.blockedUntil <= now &&
+      attempt.windowStarted + LOGIN_WINDOW_MS <= now
+    ) {
+      loginAttempts.delete(key);
+    }
+  }
+  while (loginAttempts.size > LOGIN_ATTEMPT_LIMIT) {
+    const oldest = loginAttempts.keys().next().value;
+    if (oldest === undefined) break;
+    loginAttempts.delete(oldest);
+  }
+}
+
+function loginAttemptKeys(request, operation, subject = '') {
+  const address = requestAddress(request) || 'unknown';
+  const normalizedSubject = String(subject || '-')
+    .trim()
+    .toLowerCase()
+    .slice(0, 64);
+  const prefix = `${operation}:${address}`;
+  return [`${prefix}:*`, `${prefix}:${normalizedSubject}`];
+}
+
+function assertLoginRate(request, operation, subject = '') {
   const now = Date.now();
-  const attempt = loginAttempts.get(key);
-  if (attempt?.blockedUntil > now) {
+  pruneLoginAttempts(now);
+  const keys = loginAttemptKeys(request, operation, subject);
+  if (keys.some((key) => loginAttempts.get(key)?.blockedUntil > now)) {
     throw new ApiError(
       429,
       'Çok fazla başarısız giriş. Birkaç dakika sonra tekrar deneyin.',
       'LOGIN_RATE_LIMITED',
     );
   }
-  return key;
+  return keys;
 }
 
-function recordLoginFailure(key) {
+function recordLoginFailure(keys) {
   const now = Date.now();
-  const current = loginAttempts.get(key);
-  const reset = !current || current.windowStarted + 5 * 60_000 < now;
-  const failures = reset ? 1 : current.failures + 1;
-  loginAttempts.set(key, {
-    failures,
-    windowStarted: reset ? now : current.windowStarted,
-    blockedUntil: failures >= 5 ? now + 5 * 60_000 : 0,
-  });
+  pruneLoginAttempts(now);
+  for (const key of keys) {
+    const current = loginAttempts.get(key);
+    const reset = !current || current.windowStarted + LOGIN_WINDOW_MS < now;
+    const failures = reset ? 1 : current.failures + 1;
+    loginAttempts.delete(key);
+    loginAttempts.set(key, {
+      failures,
+      windowStarted: reset ? now : current.windowStarted,
+      blockedUntil: failures >= LOGIN_MAX_FAILURES ? now + LOGIN_BLOCK_MS : 0,
+    });
+  }
+  pruneLoginAttempts(now);
+}
+
+function clearLoginFailures(keys) {
+  for (const key of keys) loginAttempts.delete(key);
+}
+
+async function runPasswordWork(request, work) {
+  const address = requestAddress(request) || 'unknown';
+  const activeForAddress = passwordWork.get(address) || 0;
+  if (
+    activePasswordWork >= PASSWORD_WORK_LIMIT ||
+    activeForAddress >= PASSWORD_WORK_PER_ADDRESS
+  ) {
+    throw new ApiError(
+      429,
+      'Çok fazla eşzamanlı giriş denemesi. Biraz sonra tekrar deneyin.',
+      'LOGIN_RATE_LIMITED',
+    );
+  }
+  activePasswordWork += 1;
+  passwordWork.set(address, activeForAddress + 1);
+  try {
+    return await work();
+  } finally {
+    activePasswordWork -= 1;
+    const remaining = (passwordWork.get(address) || 1) - 1;
+    if (remaining) passwordWork.set(address, remaining);
+    else passwordWork.delete(address);
+  }
 }
 
 function csvCell(value) {
@@ -544,12 +757,11 @@ function assetCsv(assets) {
   ].join('\n');
 }
 
-function ensureAllowedOrigin(request, options = {}) {
+function ensureAllowedOrigin(request) {
   const origin = request.headers.origin;
+  const normalized = safeOrigin(origin);
   const allowed =
-    options.allowUnconfigured === true
-      ? Boolean(safeOrigin(origin))
-      : originIsAllowed(origin);
+    originIsAllowed(normalized) || isSameOriginRequest(request, normalized);
   if (origin === 'null' || (origin && !allowed)) {
     throw new ApiError(
       403,
@@ -557,25 +769,22 @@ function ensureAllowedOrigin(request, options = {}) {
       'ORIGIN_DENIED',
     );
   }
-  return safeOrigin(origin) || null;
+  return normalized || null;
 }
 
 async function route(request, response) {
-  const url = new URL(request.url, `http://${API_HOST}:${API_PORT}`);
+  const url = new URL(request.url, 'http://localhost');
   const path = url.pathname.replace(/\/$/, '') || '/';
   const settings = getAppSettings();
+  ensureAllowedHost(request, settings);
   const bootstrapRoute = request.method === 'GET' && path === '/api/bootstrap';
   const setupRoute = request.method === 'POST' && path === '/api/setup';
-  const allowUnconfiguredOrigin =
-    bootstrapRoute || (!settings.setupCompleted && setupRoute);
-  const origin = ensureAllowedOrigin(request, {
-    allowUnconfigured: allowUnconfiguredOrigin,
-  });
+  const liveRoute = request.method === 'GET' && path === '/api/health/live';
+  const origin = ensureAllowedOrigin(request);
 
   if (request.method === 'OPTIONS') {
-    const reflectSafeOrigin = !settings.setupCompleted && path === '/api/setup';
     response.writeHead(204, {
-      ...securityHeaders(origin, reflectSafeOrigin),
+      ...securityHeaders(origin),
       'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
       'Access-Control-Max-Age': '600',
@@ -584,39 +793,62 @@ async function route(request, response) {
     return;
   }
 
+  if (liveRoute) {
+    sendJson(
+      response,
+      200,
+      {
+        ok: true,
+        name: APP_NAME,
+        version: APP_VERSION,
+        now: new Date().toISOString(),
+      },
+      origin,
+    );
+    return;
+  }
+
   if (bootstrapRoute) {
+    if (!settings.setupCompleted) currentSetupCode({ announceRotation: true });
     const session = authenticateRequest(request);
     const socketLocal = isLoopbackRequest(request);
-    const configuredLocalOrigin = Boolean(origin && UI_ORIGINS.has(origin));
-    const localAccess = socketLocal || configuredLocalOrigin;
-    const originAllowed = !origin || originIsAllowed(origin);
+    const originAllowed =
+      !origin ||
+      originIsAllowed(origin) ||
+      isSameOriginRequest(request, origin);
+    const interfaceMetadataAllowed = socketLocal || session?.role === 'admin';
+    const workspaceMetadataAllowed = socketLocal || Boolean(session);
     sendJson(
       response,
       200,
       {
         setupRequired: !settings.setupCompleted,
-        setupCodeRequired: !socketLocal,
+        setupCodeRequired: !settings.setupCompleted,
         language: settings.language,
-        organization: settings.organization,
+        organization: workspaceMetadataAllowed ? settings.organization : '',
         lanEnabled: settings.lanEnabled,
         authEnabled: settings.authEnabled,
-        defaultScanProfile: settings.defaultScanProfile,
-        defaultExpiryWarningDays: settings.defaultExpiryWarningDays,
-        defaultScanIntervalMinutes: settings.defaultScanIntervalMinutes,
+        defaultScanProfile: workspaceMetadataAllowed
+          ? settings.defaultScanProfile
+          : 'native',
+        defaultExpiryWarningDays: workspaceMetadataAllowed
+          ? settings.defaultExpiryWarningDays
+          : 30,
+        defaultScanIntervalMinutes: workspaceMetadataAllowed
+          ? settings.defaultScanIntervalMinutes
+          : 720,
         authenticated: Boolean(session),
         authenticationRequired:
           settings.setupCompleted && (settings.authEnabled || !socketLocal),
         lanAccessBlocked:
           settings.setupCompleted &&
-          !localAccess &&
-          (!settings.lanEnabled || !originAllowed),
+          !socketLocal &&
+          (!settings.lanEnabled || !originAllowed || !isSecureRequest(request)),
         originAllowed,
         user: publicUser(session),
-        suggestedOrigins: suggestedOrigins(),
+        suggestedOrigins: interfaceMetadataAllowed ? suggestedOrigins() : [],
       },
       origin,
-      {},
-      true,
     );
     return;
   }
@@ -629,21 +861,37 @@ async function route(request, response) {
         'SETUP_ALREADY_COMPLETED',
       );
     }
-    const body = await readJson(request);
-    if (!isLoopbackRequest(request)) {
-      const attemptKey = assertLoginRate(request);
-      if (String(body.setupCode || '').toUpperCase() !== setupCode) {
-        recordLoginFailure(attemptKey);
-        throw new ApiError(
-          403,
-          'Kurulum kodu geçersiz. Sunucu konsolundaki tek kullanımlık kodu girin.',
-          'INVALID_SETUP_CODE',
-        );
-      }
-      loginAttempts.delete(attemptKey);
+    if (!isLoopbackRequest(request) && !isSecureRequest(request)) {
+      throw new ApiError(
+        426,
+        'LAN üzerinden ilk kurulum HTTPS kullanmalıdır.',
+        'HTTPS_REQUIRED',
+      );
     }
+    const body = await readJson(request);
+    const attemptKeys = assertLoginRate(request, 'setup', body.username);
+    const suppliedSetupCode = Buffer.from(
+      String(body.setupCode || '').toUpperCase(),
+    );
+    const expectedSetupCode = Buffer.from(
+      currentSetupCode({ announceRotation: true }),
+    );
+    if (
+      suppliedSetupCode.length !== expectedSetupCode.length ||
+      !timingSafeEqual(suppliedSetupCode, expectedSetupCode)
+    ) {
+      recordLoginFailure(attemptKeys);
+      throw new ApiError(
+        403,
+        'Kurulum kodu geçersiz. Sunucu konsolundaki tek kullanımlık kodu girin.',
+        'INVALID_SETUP_CODE',
+      );
+    }
+    clearLoginFailures(attemptKeys);
     const username = validateUsername(body.username);
-    const password = await hashPassword(body.password);
+    const password = await runPasswordWork(request, () =>
+      hashPassword(body.password),
+    );
     const nextSettings = settingsInput(body, settings);
     const result = completeSetup({
       ...nextSettings,
@@ -682,35 +930,44 @@ async function route(request, response) {
           isSecureRequest(request),
         ),
       },
-      true,
     );
     return;
   }
 
-  const configuredLocalOrigin = Boolean(origin && UI_ORIGINS.has(origin));
-  const logicalLocal = isLoopbackRequest(request) || configuredLocalOrigin;
+  const socketLocal = isLoopbackRequest(request);
   if (!settings.setupCompleted) {
     throw new ApiError(428, 'Önce ilk kurulumu tamamlayın.', 'SETUP_REQUIRED');
   }
-  if (!logicalLocal && !settings.lanEnabled) {
+  if (!socketLocal && !settings.lanEnabled) {
     throw new ApiError(
       403,
       'LAN erişimi bu kurulumda kapalı.',
       'LAN_ACCESS_DISABLED',
     );
   }
+  if (!socketLocal && !isSecureRequest(request)) {
+    throw new ApiError(
+      426,
+      'LAN API erişimi HTTPS kullanmalıdır.',
+      'HTTPS_REQUIRED',
+    );
+  }
 
   if (request.method === 'POST' && path === '/api/session') {
-    const attemptKey = assertLoginRate(request);
     const body = await readJson(request);
     const username = String(body.username || '')
       .trim()
       .toLowerCase()
       .slice(0, 48);
+    const attemptKeys = assertLoginRate(request, 'login', username);
     const user = getUserByUsername(username);
-    const passwordValid = await verifyPassword(body.password, user);
+    // Reserve the attempt before expensive asynchronous password verification;
+    // parallel invalid requests cannot all pass an empty failure counter.
+    recordLoginFailure(attemptKeys);
+    const passwordValid = await runPasswordWork(request, () =>
+      verifyPassword(body.password, user),
+    );
     if (!passwordValid) {
-      recordLoginFailure(attemptKey);
       addAuditEvent({
         actor: username || 'unknown',
         action: 'auth.login_failed',
@@ -724,7 +981,7 @@ async function route(request, response) {
         'INVALID_CREDENTIALS',
       );
     }
-    loginAttempts.delete(attemptKey);
+    clearLoginFailures(attemptKeys);
     const created = createAuthenticatedSession(
       user.id,
       settings.sessionTtlHours,
@@ -773,8 +1030,7 @@ async function route(request, response) {
   }
 
   const session = authenticateRequest(request);
-  const authenticationRequired =
-    settings.authEnabled || !isLoopbackRequest(request);
+  const authenticationRequired = settings.authEnabled || !socketLocal;
   if (authenticationRequired && !session) {
     throw new ApiError(
       401,
@@ -783,8 +1039,7 @@ async function route(request, response) {
     );
   }
   const effectiveRole =
-    session?.role ||
-    (!settings.authEnabled && isLoopbackRequest(request) ? 'admin' : null);
+    session?.role || (!settings.authEnabled && socketLocal ? 'admin' : null);
   const adminOnlyPath =
     path.startsWith('/api/users') ||
     path.startsWith('/api/audit') ||
@@ -831,7 +1086,7 @@ async function route(request, response) {
         language: updated.language,
       },
     });
-    sendJson(response, 200, { settings: updated }, origin, {}, true);
+    sendJson(response, 200, { settings: updated }, origin);
     return;
   }
 
@@ -1557,36 +1812,51 @@ async function route(request, response) {
 }
 
 export function createApiServer() {
-  return createServer((request, response) => {
-    route(request, response).catch((error) => {
-      const origin = request.headers.origin || null;
-      const validationCodes = new Set(['INVALID_USERNAME', 'INVALID_PASSWORD']);
-      const known =
-        error instanceof ApiError ||
-        error instanceof TargetValidationError ||
-        validationCodes.has(error.code);
-      const status =
-        error.status ||
-        (error instanceof TargetValidationError ||
-        validationCodes.has(error.code)
-          ? 422
-          : 500);
-      if (!known) console.error('[api]', error);
-      sendJson(
-        response,
-        status,
-        {
-          error: {
-            code: error.code || 'INTERNAL_ERROR',
-            message: known
-              ? error.message
-              : 'Beklenmeyen bir sunucu hatası oluştu.',
-          },
-        },
-        origin,
-        {},
-        !getAppSettings().setupCompleted,
-      );
-    });
-  });
+  const pendingRequests = new Set();
+  const server = createServer(
+    {
+      headersTimeout: 15_000,
+      requestTimeout: 30_000,
+      keepAliveTimeout: 5_000,
+      maxHeaderSize: 16 * 1024,
+    },
+    (request, response) => {
+      const pending = route(request, response)
+        .catch((error) => {
+          const origin = request.headers.origin || null;
+          const validationCodes = new Set([
+            'INVALID_USERNAME',
+            'INVALID_PASSWORD',
+          ]);
+          const known =
+            error instanceof ApiError ||
+            error instanceof TargetValidationError ||
+            validationCodes.has(error.code);
+          const status =
+            error.status ||
+            (error instanceof TargetValidationError ||
+            validationCodes.has(error.code)
+              ? 422
+              : 500);
+          if (!known) console.error('[api]', error);
+          sendJson(
+            response,
+            status,
+            {
+              error: {
+                code: error.code || 'INTERNAL_ERROR',
+                message: known
+                  ? error.message
+                  : 'Beklenmeyen bir sunucu hatası oluştu.',
+              },
+            },
+            origin,
+          );
+        })
+        .finally(() => pendingRequests.delete(pending));
+      pendingRequests.add(pending);
+    },
+  );
+  server.waitForRequests = () => Promise.allSettled(pendingRequests);
+  return server;
 }

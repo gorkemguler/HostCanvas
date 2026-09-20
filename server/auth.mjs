@@ -1,4 +1,9 @@
-import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import {
+  createHash,
+  randomBytes,
+  scrypt as scryptCallback,
+  timingSafeEqual,
+} from 'node:crypto';
 import { promisify } from 'node:util';
 
 import {
@@ -32,7 +37,9 @@ function parseCookies(header = '') {
 }
 
 export function validateUsername(value) {
-  const username = String(value || '').trim().toLowerCase();
+  const username = String(value || '')
+    .trim()
+    .toLowerCase();
   if (!/^[a-z0-9][a-z0-9._-]{2,47}$/.test(username)) {
     const error = new Error(
       'Kullanıcı adı 3–48 karakter olmalı; yalnızca harf, sayı, nokta, tire ve alt çizgi içerebilir.',
@@ -76,7 +83,12 @@ export async function verifyPassword(value, user) {
   const actual = Buffer.from(
     await scrypt(candidate, salt, HASH_LENGTH, SCRYPT_OPTIONS),
   );
-  return Boolean(user) && passwordWithinLimit && expected.length === actual.length && timingSafeEqual(expected, actual);
+  return (
+    Boolean(user) &&
+    passwordWithinLimit &&
+    expected.length === actual.length &&
+    timingSafeEqual(expected, actual)
+  );
 }
 
 export function createAuthenticatedSession(userId, ttlHours) {

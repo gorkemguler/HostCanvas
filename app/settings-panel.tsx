@@ -31,6 +31,11 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { AdminPanel } from '@/app/admin-panel';
 import { apiRequest } from '@/app/client-api';
+import {
+  isLocalPanelOrigin,
+  isSecureLanOrigin,
+  panelOrigin,
+} from '@/app/client-security';
 
 type Locale = 'tr' | 'en';
 
@@ -126,9 +131,7 @@ function SettingsEditor({
         .filter(Boolean),
     ),
   ];
-  const suggestedLanOrigin = data.suggestedOrigins.find(
-    (origin) => !origin.includes('localhost') && !origin.includes('127.0.0.1'),
-  );
+  const suggestedLanOrigin = data.suggestedOrigins.find(isSecureLanOrigin);
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -194,11 +197,12 @@ function SettingsEditor({
     Number(defaultExpiryWarningDays) <= 365 &&
     Number(defaultScanIntervalMinutes) >= 15 &&
     Number(defaultScanIntervalMinutes) <= 10080 &&
+    originList().every((origin) => Boolean(panelOrigin(origin))) &&
     (!lanEnabled ||
-      originList().some(
-        (origin) =>
-          !origin.includes('localhost') && !origin.includes('127.0.0.1'),
-      ));
+      (originList().some(isSecureLanOrigin) &&
+        originList().every(
+          (origin) => isLocalPanelOrigin(origin) || isSecureLanOrigin(origin),
+        )));
   const passwordValid =
     currentPassword.length > 0 &&
     newPassword.length >= 12 &&
@@ -329,6 +333,7 @@ function SettingsEditor({
                 </p>
               </div>
               <Switch
+                aria-label={word(locale, 'Kimlik doğrulama', 'Authentication')}
                 checked={authEnabled || lanEnabled}
                 onCheckedChange={setAuthEnabled}
                 disabled={lanEnabled || !isAdmin}
@@ -343,12 +348,13 @@ function SettingsEditor({
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   {word(
                     locale,
-                    'Paneli aynı ağdaki istemcilere açar ve kimlik doğrulamayı zorunlu tutar.',
-                    'Opens the panel to clients on the same network and enforces authentication.',
+                    'Paneli ağdaki istemcilere açar; HTTPS ve kimlik doğrulama zorunludur.',
+                    'Opens the panel to network clients; HTTPS and authentication are required.',
                   )}
                 </p>
               </div>
               <Switch
+                aria-label={word(locale, 'LAN erişimi', 'LAN access')}
                 checked={lanEnabled}
                 onCheckedChange={setLan}
                 disabled={!isAdmin}
@@ -369,13 +375,13 @@ function SettingsEditor({
                 onChange={(event) => setAllowedOrigins(event.target.value)}
                 disabled={!isAdmin}
                 className="min-h-24 font-mono text-xs"
-                placeholder="http://192.168.1.20:3000"
+                placeholder="https://192.168.1.20:3443"
               />
               <p className="text-[11px] leading-5 text-muted-foreground">
                 {word(
                   locale,
-                  'Her satıra protokol ve port dahil bir adres yazın. LAN için tarayıcıda kullandığınız adresi ekleyin.',
-                  'Enter one address per line, including protocol and port. Add the address used in your browser for LAN access.',
+                  'Her satıra protokol ve port dahil bir adres yazın. LAN adresleri HTTPS kullanmalıdır; localhost için HTTP kullanılabilir.',
+                  'Enter one address per line, including protocol and port. LAN addresses require HTTPS; localhost may use HTTP.',
                 )}
               </p>
             </div>
@@ -425,8 +431,11 @@ function SettingsEditor({
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>{word(locale, 'Tarama profili', 'Scan profile')}</Label>
+                <Label htmlFor="settings-default-profile">
+                  {word(locale, 'Tarama profili', 'Scan profile')}
+                </Label>
                 <NativeSelect
+                  id="settings-default-profile"
                   value={defaultScanProfile}
                   disabled={!isAdmin}
                   onChange={(event) =>
@@ -442,10 +451,11 @@ function SettingsEditor({
                 </NativeSelect>
               </div>
               <div className="space-y-2">
-                <Label>
+                <Label htmlFor="settings-session-ttl">
                   {word(locale, 'Oturum süresi', 'Session lifetime')}
                 </Label>
                 <NativeSelect
+                  id="settings-session-ttl"
                   value={sessionTtlHours}
                   disabled={!isAdmin}
                   onChange={(event) => setSessionTtlHours(event.target.value)}
@@ -457,10 +467,11 @@ function SettingsEditor({
                 </NativeSelect>
               </div>
               <div className="space-y-2">
-                <Label>
+                <Label htmlFor="settings-expiry-warning">
                   {word(locale, 'Bitiş uyarısı (gün)', 'Expiry warning (days)')}
                 </Label>
                 <Input
+                  id="settings-expiry-warning"
                   type="number"
                   min="1"
                   max="365"
@@ -472,8 +483,11 @@ function SettingsEditor({
                 />
               </div>
               <div className="space-y-2">
-                <Label>{word(locale, 'Tarama aralığı', 'Scan interval')}</Label>
+                <Label htmlFor="settings-scan-interval">
+                  {word(locale, 'Tarama aralığı', 'Scan interval')}
+                </Label>
                 <NativeSelect
+                  id="settings-scan-interval"
                   value={defaultScanIntervalMinutes}
                   disabled={!isAdmin}
                   onChange={(event) =>
