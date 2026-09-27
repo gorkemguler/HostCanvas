@@ -20,7 +20,7 @@ services:
       TLS_SENTINEL_API_PORT: 8787
       TLS_SENTINEL_WEB_HOST: 0.0.0.0
       TLS_SENTINEL_WEB_PORT: 3000
-      TLS_SENTINEL_UI_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,https://${TLS_SENTINEL_HTTPS_HOST:-localhost}:3443
+      TLS_SENTINEL_UI_ORIGINS: http://localhost:${HOST_PORT:-3000},http://127.0.0.1:${HOST_PORT:-3000},http://localhost:3000,http://127.0.0.1:3000,https://${TLS_SENTINEL_HTTPS_HOST:-localhost}:${HTTPS_PORT:-3443}
       TLS_SENTINEL_ALLOW_PRIVATE_TARGETS: ${TLS_SENTINEL_ALLOW_PRIVATE_TARGETS:-false}
       TLS_SENTINEL_PUBLIC_DNS_RESOLVER: ${TLS_SENTINEL_PUBLIC_DNS_RESOLVER:-}
       TLS_SENTINEL_DNSSEC_RESOLVER: ${TLS_SENTINEL_DNSSEC_RESOLVER:-}
@@ -32,8 +32,8 @@ services:
     volumes:
       - tls_sentinel_data:/data
     ports:
-      - 127.0.0.1:3000:3000
-      - 127.0.0.1:8787:8787
+      - 127.0.0.1:${HOST_PORT:-3000}:3000
+      - 127.0.0.1:${API_PORT:-8787}:8787
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
@@ -70,7 +70,7 @@ services:
       app:
         condition: service_healthy
     ports:
-      - 3443:3443
+      - ${HTTPS_PORT:-3443}:3443
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -80,6 +80,8 @@ services:
       - /tmp:size=64m,mode=1777
     cap_drop:
       - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
 

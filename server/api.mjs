@@ -131,7 +131,15 @@ function requestAddress(request) {
 
 function isLoopbackRequest(request) {
   const address = requestAddress(request);
-  return address === '127.0.0.1' || address === '::1';
+  if (address === '127.0.0.1' || address === '::1') return true;
+  const host = parseRequestHost(request);
+  if (host && isLoopbackHostname(host.hostname)) {
+    const origin = headerValue(request, 'origin');
+    if (!origin || isLoopbackHostname(originHostname(origin))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isSecureRequest(request) {
